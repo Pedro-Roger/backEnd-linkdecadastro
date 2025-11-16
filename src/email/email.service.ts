@@ -28,7 +28,7 @@ export class EmailService {
       <p>Seu cadastro no evento <strong>${eventTitle}</strong> foi confirmado com sucesso!</p>
       <p>Aguarde mais informações em breve.</p>
       <hr>
-      <p><strong>Quero Cursos</strong></p>
+      <p><strong>Link de Cadastro</strong></p>
     `,
     };
 
