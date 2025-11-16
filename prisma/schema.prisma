@@ -1,0 +1,324 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum EventStatus {
+  ACTIVE
+  INACTIVE
+  CLOSED
+}
+
+enum RegistrationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+enum ParticipantType {
+  ESTUDANTE
+  PROFESSOR
+  PESQUISADOR
+  PRODUTOR
+}
+
+enum NotificationType {
+  COURSE_ENROLLED
+  LESSON_COMPLETED
+  NEW_COMMENT
+  COURSE_UPDATED
+  SYSTEM
+}
+
+enum NotificationStatus {
+  UNREAD
+  READ
+}
+
+model User {
+  id                    String   @id @default(auto()) @map("_id") @db.ObjectId
+  email                 String   @unique
+  password              String?  // Opcional para usuários do Google
+  name                  String
+  fullName              String?  // Nome completo (obrigatório para Google)
+  phone                 String?  // Telefone/WhatsApp (obrigatório para Google)
+  cpf                   String?  // CPF
+  birthDate             DateTime? // Data de nascimento
+  participantType       ParticipantType? // Tipo de participante
+  hectares              Float?  // Hectares (apenas para produtores)
+  state                 String? // Estado
+  city                  String? // Cidade
+  role                  UserRole @default(USER)
+  avatar                String?
+  bio                   String?
+  needsProfileCompletion Boolean  @default(false) // Se precisa completar cadastro
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  registrations Registration[]
+  enrollments   Enrollment[]
+  courses       Course[] @relation("CourseCreator")
+  comments      Comment[]
+  notifications Notification[]
+  progress      LessonProgress[]
+
+  @@map("users")
+}
+
+model Event {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String
+  bannerUrl   String?
+  linkId      String      @unique
+  status      EventStatus @default(ACTIVE)
+  maxRegistrations Int?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  createdBy  String      @db.ObjectId
+
+  registrations Registration[]
+  municipalities MunicipalityLimit[]
+
+  @@map("events")
+}
+
+model MunicipalityLimit {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  eventId         String   @db.ObjectId
+  municipality    String
+  state           String
+  defaultLimit    Int      @default(20)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  event           Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registrations   Registration[]
+  classes         MunicipalityClass[]
+
+  @@unique([eventId, municipality, state])
+  @@map("municipality_limits")
+}
+
+enum MunicipalityClassStatus {
+  ACTIVE
+  CLOSED
+}
+
+model MunicipalityClass {
+  id                String                   @id @default(auto()) @map("_id") @db.ObjectId
+  municipalityLimitId String                 @db.ObjectId
+  classNumber       Int
+  limit             Int
+  currentCount      Int                      @default(0)
+  status            MunicipalityClassStatus  @default(ACTIVE)
+  createdAt         DateTime                 @default(now())
+  closedAt          DateTime?
+  updatedAt         DateTime                 @updatedAt
+
+  municipalityLimit MunicipalityLimit        @relation(fields: [municipalityLimitId], references: [id], onDelete: Cascade)
+  registrations     Registration[]
+
+  @@unique([municipalityLimitId, classNumber])
+  @@map("municipality_classes")
+}
+
+model Registration {
+  id              String            @id @default(auto()) @map("_id") @db.ObjectId
+  eventId         String            @db.ObjectId
+  userId          String?           @db.ObjectId
+  municipalityId  String?           @db.ObjectId
+  municipalityClassId String?       @db.ObjectId
+  batchNumber     Int               @default(1)
+  
+  // Dados do formulário
+  name            String
+  cpf             String            @unique
+  phone           String
+  email           String
+  cep             String
+  locality        String
+  city            String
+  state           String
+  participantType ParticipantType
+  otherType      String?
+  pondCount      Int?
+  waterDepth     Float?
+  
+  status          RegistrationStatus @default(PENDING)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  event           Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user            User?             @relation(fields: [userId], references: [id])
+  municipality    MunicipalityLimit? @relation(fields: [municipalityId], references: [id])
+  municipalityClass MunicipalityClass? @relation(fields: [municipalityClassId], references: [id])
+
+  @@map("registrations")
+}
+
+enum CourseType {
+  PRESENCIAL
+  ONLINE
+}
+
+model Course {
+  id            String     @id @default(auto()) @map("_id") @db.ObjectId
+  title         String
+  description   String?
+  bannerUrl     String?
+  status        String     @default("ACTIVE")
+  type          CourseType @default(ONLINE)
+  maxEnrollments Int?
+  waitlistLimit  Int       @default(0)
+  waitlistEnabled Boolean  @default(false)
+  regionRestrictionEnabled Boolean @default(false)
+  allowAllRegions Boolean  @default(true)
+  defaultRegionLimit Int?
+  startDate     DateTime?
+  endDate       DateTime?
+  slug          String?    @unique // URL personalizada
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  createdBy     String     @db.ObjectId
+
+  creator       User       @relation("CourseCreator", fields: [createdBy], references: [id])
+  lessons       Lesson[]
+  enrollments   Enrollment[]
+  regionQuotas  CourseRegionQuota[]
+
+  @@map("courses")
+}
+
+model Lesson {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  courseId    String   @db.ObjectId
+  title       String
+  description String?
+  videoUrl    String?  // URL do YouTube
+  bannerUrl   String?  // Banner/Thumbnail da aula
+  duration    String?
+  order       Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  comments    Comment[]
+  progress    LessonProgress[]
+
+  @@map("lessons")
+}
+
+model Enrollment {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId
+  courseId      String   @db.ObjectId
+  progress      Int      @default(0) // Porcentagem de conclusão
+  completedAt   DateTime?
+  status        EnrollmentStatus @default(CONFIRMED)
+  waitlistPosition Int?
+  regionQuotaId  String?  @db.ObjectId
+  eligibilityReason String?
+  whatsappNumber  String?
+  
+  // Dados adicionais do registro
+  cpf           String?
+  birthDate     DateTime?
+  participantType ParticipantType?
+  hectares      Float?  // Apenas para produtores
+  state         String?
+  city          String?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  regionQuota CourseRegionQuota? @relation(fields: [regionQuotaId], references: [id])
+
+  @@unique([userId, courseId])
+  @@map("enrollments")
+}
+
+model CourseRegionQuota {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  courseId       String   @db.ObjectId
+  state          String
+  city           String?
+  limit          Int
+  waitlistLimit  Int      @default(0)
+  currentCount   Int      @default(0)
+  waitlistCount  Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  enrollments    Enrollment[]
+
+  @@unique([courseId, state, city])
+  @@map("course_region_quotas")
+}
+
+enum EnrollmentStatus {
+  CONFIRMED
+  WAITLIST
+  PENDING_REGION
+  REJECTED
+}
+
+model LessonProgress {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  lessonId    String   @db.ObjectId
+  completed   Boolean  @default(false)
+  watchedTime Int      @default(0) // Tempo assistido em segundos
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@map("lesson_progress")
+}
+
+model Comment {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  lessonId  String   @db.ObjectId
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+}
+
+model Notification {
+  id        String           @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String           @db.ObjectId
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  status    NotificationStatus @default(UNREAD)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
