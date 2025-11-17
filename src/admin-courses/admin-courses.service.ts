@@ -68,6 +68,10 @@ export class AdminCoursesService {
           select: {
             id: true,
             title: true,
+            description: true,
+            videoUrl: true,
+            bannerUrl: true,
+            duration: true,
             order: true,
           },
         },

@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MunicipalityClassStatus, ParticipantType } from '@prisma/client';
+import * as XLSX from 'xlsx';
+import PDFDocument from 'pdfkit';
 
 @Injectable()
 export class AdminEventsService {
@@ -230,6 +232,335 @@ export class AdminEventsService {
         })),
       },
     };
+  }
+
+  async listEventRegistrations(eventId: string, userRole: string | undefined) {
+    this.assertAdmin(userRole);
+
+    const event = await this.prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, title: true },
+    });
+
+    if (!event) {
+      throw new NotFoundException('Evento não encontrado');
+    }
+
+    const registrations = await this.prisma.registration.findMany({
+      where: { eventId },
+      include: {
+        municipality: {
+          select: {
+            municipality: true,
+            state: true,
+          },
+        },
+        municipalityClass: {
+          select: {
+            classNumber: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      event,
+      registrations,
+    };
+  }
+
+  async exportRegistrations(
+    eventId: string,
+    userRole: string | undefined,
+    formatParam?: string,
+    fieldsParam?: string[],
+  ) {
+    this.assertAdmin(userRole);
+
+    const event = await this.prisma.event.findUnique({
+      where: { id: eventId },
+      select: {
+        title: true,
+      },
+    });
+
+    if (!event) {
+      throw new NotFoundException('Evento não encontrado');
+    }
+
+    const registrations = await this.prisma.registration.findMany({
+      where: { eventId },
+      include: {
+        municipality: {
+          select: {
+            municipality: true,
+            state: true,
+          },
+        },
+        municipalityClass: {
+          select: {
+            classNumber: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const participantTypeLabels: Record<ParticipantType, string> = {
+      PRODUTOR: 'Produtor',
+      ESTUDANTE: 'Estudante',
+      PROFESSOR: 'Professor',
+      PESQUISADOR: 'Pesquisador',
+    };
+
+    const statusLabels: Record<string, string> = {
+      PENDING: 'Pendente',
+      CONFIRMED: 'Confirmado',
+      CANCELLED: 'Cancelado',
+    };
+
+    const availableFields = {
+      number: {
+        label: 'Nº',
+        getter: (_r: any) => 0, // será sobrescrito no momento da geração da linha
+      },
+      name: {
+        label: 'Nome Completo',
+        getter: (r: any) => r.name,
+      },
+      cpf: {
+        label: 'CPF',
+        getter: (r: any) => r.cpf,
+      },
+      email: {
+        label: 'E-mail',
+        getter: (r: any) => r.email,
+      },
+      phone: {
+        label: 'Telefone',
+        getter: (r: any) => r.phone,
+      },
+      cep: {
+        label: 'CEP',
+        getter: (r: any) => r.cep,
+      },
+      locality: {
+        label: 'Localidade/Bairro',
+        getter: (r: any) => r.locality,
+      },
+      city: {
+        label: 'Cidade',
+        getter: (r: any) => r.city,
+      },
+      state: {
+        label: 'Estado',
+        getter: (r: any) => r.state,
+      },
+      participantType: {
+        label: 'Tipo de Participante',
+        getter: (r: any) =>
+          participantTypeLabels[r.participantType as ParticipantType] ||
+          r.participantType ||
+          '-',
+      },
+      otherType: {
+        label: 'O que você é?',
+        getter: (r: any) => r.otherType || '-',
+      },
+      pondCount: {
+        label: 'Quantidade de Viveiros',
+        getter: (r: any) => r.pondCount ?? '-',
+      },
+      waterDepth: {
+        label: 'Lâmina d\'água (metros)',
+        getter: (r: any) => r.waterDepth ?? '-',
+      },
+      municipality: {
+        label: 'Município',
+        getter: (r: any) => r.municipality?.municipality || r.city || '-',
+      },
+      classNumber: {
+        label: 'Turma',
+        getter: (r: any) =>
+          r.municipalityClass?.classNumber || r.batchNumber || '-',
+      },
+      status: {
+        label: 'Status',
+        getter: (r: any) => statusLabels[r.status] || r.status || '-',
+      },
+      createdAt: {
+        label: 'Data de Cadastro',
+        getter: (r: any) =>
+          new Date(r.createdAt).toLocaleString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+      },
+    } as const;
+
+    const defaultFields = [
+      'number',
+      'name',
+      'cpf',
+      'email',
+      'phone',
+      'city',
+      'state',
+      'participantType',
+      'classNumber',
+      'createdAt',
+    ] as const;
+    type FieldKey = keyof typeof availableFields;
+
+    function parseFields(fields?: string[]): FieldKey[] {
+      if (!fields || fields.length === 0) {
+        return [...defaultFields] as FieldKey[];
+      }
+      const parsed = fields
+        .map((field) => field.trim())
+        .filter((field): field is FieldKey => field in availableFields);
+      return parsed.length > 0 ? parsed : ([...defaultFields] as FieldKey[]);
+    }
+
+    const selectedFields = parseFields(fieldsParam);
+
+    const headerRow = selectedFields.map((key) => availableFields[key].label);
+    const dataRows = registrations.map((registration, index) =>
+      selectedFields.map((key) => {
+        const value =
+          key === 'number'
+            ? index + 1
+            : availableFields[key].getter(registration);
+        return value === null || value === undefined ? '' : String(value);
+      }),
+    );
+
+    const sanitizedTitle = event.title
+      .replace(/[^a-z0-9]/gi, '-')
+      .toLowerCase();
+
+    const formatType =
+      formatParam === 'csv' || formatParam === 'pdf' ? formatParam : 'xlsx';
+
+    if (formatType === 'pdf') {
+      const doc = new PDFDocument({ size: 'A4', margin: 40 }) as any;
+      const chunks: Buffer[] = [];
+
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+      const pdfPromise = new Promise<Buffer>((resolve) => {
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+      });
+
+      doc.fontSize(16).text(`Relatório de Cadastros - ${event.title}`);
+      doc.moveDown();
+
+      if (registrations.length === 0) {
+        doc.fontSize(12).text('Nenhum cadastro encontrado.');
+      } else {
+        registrations.forEach((registration, index) => {
+          doc.fontSize(12).font('Helvetica-Bold').text(`Participante ${index + 1}`);
+          doc.moveDown(0.2);
+
+          selectedFields.forEach((fieldKey) => {
+            if (fieldKey === 'number') return;
+            const descriptor = availableFields[fieldKey];
+            const value = descriptor.getter(registration);
+            doc
+              .font('Helvetica')
+              .fontSize(11)
+              .text(`${descriptor.label}: ${value ?? '-'}`);
+          });
+
+          doc.moveDown();
+        });
+      }
+
+      doc.end();
+
+      const pdfBuffer = await pdfPromise;
+      const arrayBuffer = new Uint8Array(pdfBuffer).buffer as ArrayBuffer;
+
+      return {
+        buffer: arrayBuffer,
+        contentType: 'application/pdf',
+        filename: `cadastros-${sanitizedTitle}.pdf`,
+      };
+    }
+
+    const worksheet = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Cadastros');
+
+    if (formatType === 'csv') {
+      const csv = XLSX.utils.sheet_to_csv(worksheet, { FS: ';' });
+      const csvBuffer = Buffer.from(csv, 'utf-8');
+      return {
+        buffer: csvBuffer,
+        contentType: 'text/csv; charset=utf-8',
+        filename: `cadastros-${sanitizedTitle}.csv`,
+      };
+    }
+
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    return {
+      buffer,
+      contentType:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      filename: `cadastros-${sanitizedTitle}.xlsx`,
+    };
+  }
+
+  async updateMunicipalityLimit(
+    limitId: string,
+    userRole: string | undefined,
+    body: { defaultLimit?: number },
+  ) {
+    this.assertAdmin(userRole);
+
+    const limit = await this.prisma.municipalityLimit.findUnique({
+      where: { id: limitId },
+    });
+
+    if (!limit) {
+      throw new NotFoundException('Limite de município não encontrado');
+    }
+
+    return this.prisma.municipalityLimit.update({
+      where: { id: limitId },
+      data: {
+        defaultLimit: body.defaultLimit,
+      },
+    });
+  }
+
+  async closeClass(classId: string, userRole: string | undefined) {
+    this.assertAdmin(userRole);
+
+    const classItem = await this.prisma.municipalityClass.findUnique({
+      where: { id: classId },
+    });
+
+    if (!classItem) {
+      throw new NotFoundException('Turma não encontrada');
+    }
+
+    if (classItem.status === MunicipalityClassStatus.CLOSED) {
+      throw new ForbiddenException('Turma já está encerrada');
+    }
+
+    return this.prisma.municipalityClass.update({
+      where: { id: classId },
+      data: {
+        status: MunicipalityClassStatus.CLOSED,
+        closedAt: new Date(),
+      },
+    });
   }
 }
 
