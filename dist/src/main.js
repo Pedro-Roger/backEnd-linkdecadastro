@@ -39,10 +39,23 @@ const path_1 = require("path");
 const express = __importStar(require("express"));
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule);
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const allowedOrigins = [
+        'https://linkdecadastro.com.br',
+        'https://www.linkdecadastro.com.br',
+        process.env.FRONTEND_URL || 'http://localhost:3000',
+    ].filter(Boolean);
     app.enableCors({
-        origin: [frontendUrl],
+        origin: (origin, callback) => {
+            if (!origin || allowedOrigins.includes(origin)) {
+                callback(null, true);
+            }
+            else {
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
         credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
     });
     const uploadsRoot = process.env.UPLOAD_DIR || (0, path_1.join)(process.cwd(), 'public', 'uploads');
     app.use('/uploads', express.static(uploadsRoot));
