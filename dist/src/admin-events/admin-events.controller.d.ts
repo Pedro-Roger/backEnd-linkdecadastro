@@ -1,3 +1,4 @@
+import { Response } from 'express';
 import { AdminEventsService } from './admin-events.service';
 export declare class AdminEventsController {
     private readonly adminEventsService;
@@ -75,5 +76,67 @@ export declare class AdminEventsController {
                 byParticipantType: Partial<Record<import("@prisma/client").$Enums.ParticipantType, number>>;
             }[];
         };
+    }>;
+    listRegistrations(eventId: string, req: any): Promise<{
+        event: {
+            id: string;
+            title: string;
+        };
+        registrations: ({
+            municipalityClass: {
+                classNumber: number;
+            } | null;
+            municipality: {
+                state: string;
+                municipality: string;
+            } | null;
+        } & {
+            id: string;
+            email: string;
+            name: string;
+            phone: string;
+            cpf: string;
+            participantType: import("@prisma/client").$Enums.ParticipantType;
+            state: string;
+            city: string;
+            createdAt: Date;
+            updatedAt: Date;
+            status: import("@prisma/client").$Enums.RegistrationStatus;
+            userId: string | null;
+            eventId: string;
+            municipalityId: string | null;
+            municipalityClassId: string | null;
+            batchNumber: number;
+            cep: string;
+            locality: string;
+            otherType: string | null;
+            pondCount: number | null;
+            waterDepth: number | null;
+        })[];
+    }>;
+    exportRegistrations(eventId: string, format: string | undefined, fields: string | string[] | undefined, req: any & {
+        res?: Response;
+    }): Promise<void>;
+    updateMunicipalityLimit(limitId: string, req: any, body: {
+        defaultLimit?: number;
+    }): Promise<{
+        id: string;
+        state: string;
+        createdAt: Date;
+        updatedAt: Date;
+        eventId: string;
+        municipality: string;
+        defaultLimit: number;
+    }>;
+    closeClass(classId: string, req: any): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        status: import("@prisma/client").$Enums.MunicipalityClassStatus;
+        limit: number;
+        currentCount: number;
+        municipalityLimitId: string;
+        classNumber: number;
+        closedAt: Date | null;
     }>;
 }

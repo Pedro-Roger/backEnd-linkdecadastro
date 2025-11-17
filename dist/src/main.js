@@ -42,7 +42,9 @@ async function bootstrap() {
     const allowedOrigins = [
         'https://linkdecadastro.com.br',
         'https://www.linkdecadastro.com.br',
-        process.env.FRONTEND_URL || 'http://localhost:3000',
+        'http://localhost:5173',
+        'http://localhost:3000',
+        process.env.FRONTEND_URL || 'http://localhost:5173',
     ].filter(Boolean);
     app.enableCors({
         origin: (origin, callback) => {

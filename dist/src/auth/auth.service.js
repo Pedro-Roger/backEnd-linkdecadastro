@@ -140,6 +140,53 @@ let AuthService = class AuthService {
             },
         });
     }
+    async googleLogin(googleUser) {
+        let user = await this.prisma.user.findUnique({
+            where: { email: googleUser.email },
+        });
+        if (!user) {
+            user = await this.prisma.user.create({
+                data: {
+                    email: googleUser.email,
+                    name: googleUser.name,
+                    avatar: googleUser.picture || null,
+                    role: 'USER',
+                    password: null,
+                    needsProfileCompletion: true,
+                },
+            });
+        }
+        else if (googleUser.picture && !user.avatar) {
+            user = await this.prisma.user.update({
+                where: { id: user.id },
+                data: { avatar: googleUser.picture },
+            });
+        }
+        const payload = {
+            sub: user.id,
+            email: user.email,
+            role: user.role,
+            needsProfileCompletion: user.needsProfileCompletion,
+            phone: user.phone,
+            state: user.state,
+            city: user.city,
+        };
+        const accessToken = await this.jwtService.signAsync(payload);
+        return {
+            accessToken,
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                role: user.role,
+                needsProfileCompletion: user.needsProfileCompletion,
+                phone: user.phone,
+                state: user.state,
+                city: user.city,
+                avatar: user.avatar,
+            },
+        };
+    }
 };
 exports.AuthService = AuthService;
 exports.AuthService = AuthService = __decorate([

@@ -1,3 +1,4 @@
+import type { Response } from 'express';
 import { AuthService } from './auth.service';
 export declare class AuthController {
     private readonly authService;
@@ -44,4 +45,6 @@ export declare class AuthController {
         bio: string | null;
         createdAt: Date;
     } | null>;
+    googleAuth(): Promise<void>;
+    googleAuthRedirect(req: any, res: Response): Promise<void>;
 }

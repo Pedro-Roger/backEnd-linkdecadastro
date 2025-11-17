@@ -33,6 +33,25 @@ let AdminEventsController = class AdminEventsController {
     async getRegions(eventId, req) {
         return this.adminEventsService.getRegionsSummary(eventId, req.user.role);
     }
+    async listRegistrations(eventId, req) {
+        return this.adminEventsService.listEventRegistrations(eventId, req.user.role);
+    }
+    async exportRegistrations(eventId, format, fields, req) {
+        const fieldsArray = typeof fields === 'string'
+            ? fields.split(',').map((f) => f.trim())
+            : fields;
+        const result = await this.adminEventsService.exportRegistrations(eventId, req.user.role, format, fieldsArray);
+        const res = req.res;
+        res.setHeader('Content-Type', result.contentType);
+        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+        res.end(result.buffer);
+    }
+    async updateMunicipalityLimit(limitId, req, body) {
+        return this.adminEventsService.updateMunicipalityLimit(limitId, req.user.role, body);
+    }
+    async closeClass(classId, req) {
+        return this.adminEventsService.closeClass(classId, req.user.role);
+    }
 };
 exports.AdminEventsController = AdminEventsController;
 __decorate([
@@ -67,6 +86,41 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], AdminEventsController.prototype, "getRegions", null);
+__decorate([
+    (0, common_1.Get)(':eventId/registrations'),
+    __param(0, (0, common_1.Param)('eventId')),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], AdminEventsController.prototype, "listRegistrations", null);
+__decorate([
+    (0, common_1.Get)(':eventId/export'),
+    __param(0, (0, common_1.Param)('eventId')),
+    __param(1, (0, common_1.Query)('format')),
+    __param(2, (0, common_1.Query)('fields')),
+    __param(3, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object, Object]),
+    __metadata("design:returntype", Promise)
+], AdminEventsController.prototype, "exportRegistrations", null);
+__decorate([
+    (0, common_1.Patch)('limits/:limitId'),
+    __param(0, (0, common_1.Param)('limitId')),
+    __param(1, (0, common_1.Req)()),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", Promise)
+], AdminEventsController.prototype, "updateMunicipalityLimit", null);
+__decorate([
+    (0, common_1.Patch)('classes/:classId/close'),
+    __param(0, (0, common_1.Param)('classId')),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], AdminEventsController.prototype, "closeClass", null);
 exports.AdminEventsController = AdminEventsController = __decorate([
     (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
     (0, common_1.Controller)('admin/events'),

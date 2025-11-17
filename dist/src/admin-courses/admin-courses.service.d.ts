@@ -56,6 +56,10 @@ export declare class AdminCoursesService {
         lessons: {
             id: string;
             title: string;
+            description: string | null;
+            bannerUrl: string | null;
+            videoUrl: string | null;
+            duration: string | null;
             order: number;
         }[];
         regionQuotas: {

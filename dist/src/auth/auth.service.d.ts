@@ -68,5 +68,23 @@ export declare class AuthService {
         bio: string | null;
         createdAt: Date;
     } | null>;
+    googleLogin(googleUser: {
+        email: string;
+        name: string;
+        picture?: string | null;
+    }): Promise<{
+        accessToken: string;
+        user: {
+            id: string;
+            email: string;
+            name: string;
+            role: import("@prisma/client").$Enums.UserRole;
+            needsProfileCompletion: boolean;
+            phone: string | null;
+            state: string | null;
+            city: string | null;
+            avatar: string | null;
+        };
+    }>;
 }
 export {};
