@@ -60,13 +60,14 @@ export class AuthController {
       const googleUser = req.user;
       const result = await this.authService.googleLogin(googleUser);
       
-      // Redireciona para o frontend com o token
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      // Normaliza a URL do frontend (remove barra final se existir)
+      const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
       const redirectUrl = `${frontendUrl}/auth/google/callback?token=${result.accessToken}&user=${encodeURIComponent(JSON.stringify(result.user))}`;
       
       res.redirect(redirectUrl);
     } catch (error) {
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      // Normaliza a URL do frontend (remove barra final se existir)
+      const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
       res.redirect(`${frontendUrl}/login?error=google_auth_failed`);
     }
   }
