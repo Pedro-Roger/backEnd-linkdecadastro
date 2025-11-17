@@ -6,11 +6,25 @@ import * as express from 'express';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  // Lista de origens permitidas
+  const allowedOrigins = [
+    'https://linkdecadastro.com.br',
+    'https://www.linkdecadastro.com.br',
+    process.env.FRONTEND_URL || 'http://localhost:3000',
+  ].filter(Boolean); // Remove valores undefined/null
 
   app.enableCors({
-    origin: [frontendUrl],
+    origin: (origin, callback) => {
+      // Permite requisições sem origem (mobile apps, Postman, etc) em desenvolvimento
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
   // Servir arquivos estáticos de upload em /uploads (ex: /uploads/banners/...)
