@@ -128,6 +128,61 @@ export class AuthService {
       },
     });
   }
+
+  async googleLogin(googleUser: { email: string; name: string; picture?: string | null }) {
+    // Verifica se o usuário já existe
+    let user = await this.prisma.user.findUnique({
+      where: { email: googleUser.email },
+    });
+
+    // Se não existe, cria um novo usuário
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: {
+          email: googleUser.email,
+          name: googleUser.name,
+          avatar: googleUser.picture || null,
+          role: 'USER',
+          password: null, // Usuários do Google não têm senha
+          needsProfileCompletion: true, // Precisa completar perfil
+        },
+      });
+    } else if (googleUser.picture && !user.avatar) {
+      // Atualiza avatar se não tiver
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { avatar: googleUser.picture },
+      });
+    }
+
+    // Gera token JWT
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      needsProfileCompletion: user.needsProfileCompletion,
+      phone: user.phone,
+      state: user.state,
+      city: user.city,
+    };
+
+    const accessToken = await this.jwtService.signAsync(payload);
+
+    return {
+      accessToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        needsProfileCompletion: user.needsProfileCompletion,
+        phone: user.phone,
+        state: user.state,
+        city: user.city,
+        avatar: user.avatar,
+      },
+    };
+  }
 }
 
 
