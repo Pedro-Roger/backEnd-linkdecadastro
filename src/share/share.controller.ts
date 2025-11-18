@@ -1,0 +1,65 @@
+import { Controller, Get, Param, Res, NotFoundException } from '@nestjs/common';
+import type { Response } from 'express';
+import { ShareService } from './share.service';
+
+@Controller('share')
+export class ShareController {
+  constructor(private readonly shareService: ShareService) {}
+
+  @Get('course/:courseId')
+  async getCourseShare(@Param('courseId') courseId: string, @Res() res: Response) {
+    try {
+      const course = await this.shareService.getCoursePreviewData(courseId);
+      
+      const frontendUrl = process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
+      const siteUrl = frontendUrl.replace(/\/$/, '');
+      const url = course.slug 
+        ? `${siteUrl}/c/${course.slug}`
+        : `${siteUrl}/course/${course.id}`;
+
+      const html = this.shareService.generateOpenGraphHTML({
+        title: course.title,
+        description: course.description,
+        bannerUrl: course.bannerUrl,
+        url,
+        type: 'article',
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new NotFoundException('Curso não encontrado');
+    }
+  }
+
+  @Get('event/:eventId')
+  async getEventShare(@Param('eventId') eventId: string, @Res() res: Response) {
+    try {
+      const event = await this.shareService.getEventPreviewData(eventId);
+      
+      const frontendUrl = process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
+      const siteUrl = frontendUrl.replace(/\/$/, '');
+      const url = `${siteUrl}/register/${event.linkId}`;
+
+      const html = this.shareService.generateOpenGraphHTML({
+        title: event.title,
+        description: event.description,
+        bannerUrl: event.bannerUrl,
+        url,
+        type: 'article',
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new NotFoundException('Evento não encontrado');
+    }
+  }
+}
+

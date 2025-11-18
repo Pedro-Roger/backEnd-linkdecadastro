@@ -13,6 +13,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AdminCoursesModule } from './admin-courses/admin-courses.module';
 import { AdminEventsModule } from './admin-events/admin-events.module';
 import { AdminUploadModule } from './admin-upload/admin-upload.module';
+import { ShareModule } from './share/share.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { AdminUploadModule } from './admin-upload/admin-upload.module';
     AdminCoursesModule,
     AdminEventsModule,
     AdminUploadModule,
+    ShareModule,
   ],
   controllers: [AppController],
   providers: [AppService],
