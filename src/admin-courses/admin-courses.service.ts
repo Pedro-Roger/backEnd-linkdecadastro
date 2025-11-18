@@ -88,9 +88,7 @@ export class AdminCoursesService {
       throw new NotFoundException('Curso não encontrado');
     }
 
-    if (course.createdBy !== userId) {
-      throw new ForbiddenException('Sem permissão para ver este curso');
-    }
+    // Admins podem ver qualquer curso - removida restrição de createdBy
 
     return course;
   }
@@ -274,9 +272,7 @@ export class AdminCoursesService {
       throw new NotFoundException('Curso não encontrado');
     }
 
-    if (course.createdBy !== userId) {
-      throw new ForbiddenException('Sem permissão para excluir este curso');
-    }
+    // Admins podem deletar qualquer curso - removida restrição de createdBy
 
     await this.prisma.course.delete({
       where: { id: courseId },
@@ -299,9 +295,7 @@ export class AdminCoursesService {
       throw new NotFoundException('Curso não encontrado');
     }
 
-    if (existingCourse.createdBy !== userId) {
-      throw new ForbiddenException('Sem permissão para editar este curso');
-    }
+    // Admins podem editar qualquer curso - removida restrição de createdBy
 
     const {
       title,
@@ -482,9 +476,11 @@ export class AdminCoursesService {
       where: { id: courseId },
     });
 
-    if (!course || course.createdBy !== userId) {
-      throw new ForbiddenException('Curso não encontrado ou sem permissão');
+    if (!course) {
+      throw new NotFoundException('Curso não encontrado');
     }
+
+    // Admins podem criar aulas em qualquer curso - removida restrição de createdBy
 
     const youtubeId = this.extractYouTubeId(body.videoUrl);
     if (!youtubeId) {
@@ -554,9 +550,7 @@ export class AdminCoursesService {
       throw new NotFoundException('Aula não encontrada');
     }
 
-    if (lesson.course.createdBy !== userId) {
-      throw new ForbiddenException('Sem permissão');
-    }
+    // Admins podem ver qualquer aula - removida restrição de createdBy
 
     return lesson;
   }
@@ -587,9 +581,7 @@ export class AdminCoursesService {
       throw new NotFoundException('Aula não encontrada');
     }
 
-    if (lesson.course.createdBy !== userId) {
-      throw new ForbiddenException('Sem permissão');
-    }
+    // Admins podem editar qualquer aula - removida restrição de createdBy
 
     const youtubeId = this.extractYouTubeId(body.videoUrl);
     if (!youtubeId) {
@@ -641,9 +633,7 @@ export class AdminCoursesService {
       throw new NotFoundException('Aula não encontrada');
     }
 
-    if (lesson.course.createdBy !== userId) {
-      throw new ForbiddenException('Sem permissão');
-    }
+    // Admins podem deletar qualquer aula - removida restrição de createdBy
 
     await this.prisma.lesson.delete({
       where: { id: lessonId },
