@@ -540,6 +540,56 @@ export class CoursesService {
       },
     };
   }
+
+  async enrollInCourseByEmail(
+    courseId: string,
+    body: {
+      email: string;
+      cpf?: string;
+      birthDate?: string;
+      participantType?: string;
+      hectares?: any;
+      state?: string;
+      city?: string;
+      whatsappNumber?: string;
+    },
+  ) {
+    const {
+      email,
+      cpf,
+      birthDate,
+      participantType,
+      hectares,
+      state,
+      city,
+      whatsappNumber,
+    } = body;
+
+    // Busca o usuário pelo email
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      return {
+        error: {
+          message: 'Email não encontrado. Por favor, crie uma conta primeiro.',
+          status: 404,
+        },
+      };
+    }
+
+    // Usa o método existente de inscrição com o userId encontrado
+    return this.enrollInCourse(user.id, courseId, {
+      cpf,
+      birthDate,
+      participantType,
+      hectares,
+      state,
+      city,
+      whatsappNumber,
+    });
+  }
 }
 
 

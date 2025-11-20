@@ -95,6 +95,37 @@ export class CoursesController {
 
     return result;
   }
+
+  // Endpoint para inscrição vinculada ao email (sem autenticação)
+  @Post(':courseId/enroll-by-email')
+  async enrollByEmail(
+    @Param('courseId') courseId: string,
+    @Body()
+    body: {
+      email: string;
+      cpf?: string;
+      birthDate?: string;
+      participantType?: string;
+      hectares?: any;
+      state?: string;
+      city?: string;
+      whatsappNumber?: string;
+    },
+  ) {
+    const result = await this.coursesService.enrollInCourseByEmail(
+      courseId,
+      body,
+    );
+
+    if ('error' in result && result.error) {
+      return {
+        error: result.error.message,
+        statusCode: result.error.status,
+      };
+    }
+
+    return result;
+  }
 }
 
 
