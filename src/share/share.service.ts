@@ -5,9 +5,10 @@ import { PrismaService } from '../prisma/prisma.service';
 export class ShareService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getCoursePreviewData(courseId: string) {
-    const course = await this.prisma.course.findUnique({
-      where: { id: courseId },
+  async getCoursePreviewData(courseIdOrSlug: string) {
+    // Tenta buscar por ID primeiro
+    let course = await this.prisma.course.findUnique({
+      where: { id: courseIdOrSlug },
       select: {
         id: true,
         title: true,
@@ -16,6 +17,20 @@ export class ShareService {
         slug: true,
       },
     });
+
+    // Se não encontrou por ID, tenta buscar por slug
+    if (!course) {
+      course = await this.prisma.course.findUnique({
+        where: { slug: courseIdOrSlug },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          bannerUrl: true,
+          slug: true,
+        },
+      });
+    }
 
     if (!course) {
       throw new NotFoundException('Curso não encontrado');

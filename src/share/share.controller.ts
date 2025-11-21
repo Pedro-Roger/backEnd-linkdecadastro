@@ -61,5 +61,35 @@ export class ShareController {
       throw new NotFoundException('Evento não encontrado');
     }
   }
+
+  @Get('enroll/:courseSlugOrId')
+  async getEnrollShare(@Param('courseSlugOrId') courseSlugOrId: string, @Res() res: Response) {
+    try {
+      // Busca o curso por slug ou ID
+      const course = await this.shareService.getCoursePreviewData(courseSlugOrId);
+      
+      const frontendUrl = process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
+      const siteUrl = frontendUrl.replace(/\/$/, '');
+      const url = course.slug 
+        ? `${siteUrl}/enroll.html?course=${course.slug}`
+        : `${siteUrl}/enroll.html?course=${course.id}`;
+
+      const html = this.shareService.generateOpenGraphHTML({
+        title: course.title,
+        description: course.description,
+        bannerUrl: course.bannerUrl,
+        url,
+        type: 'website',
+      });
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new NotFoundException('Curso não encontrado');
+    }
+  }
 }
 
