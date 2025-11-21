@@ -6,9 +6,24 @@ export class ShareService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getCoursePreviewData(courseIdOrSlug: string) {
-    // Tenta buscar por ID primeiro
+    console.log('[getCoursePreviewData] Buscando curso:', courseIdOrSlug);
+    
+    // Decodifica o slug caso tenha sido codificado na URL
+    let decodedSlug: string;
+    try {
+      decodedSlug = decodeURIComponent(courseIdOrSlug);
+    } catch (e) {
+      decodedSlug = courseIdOrSlug;
+    }
+    console.log('[getCoursePreviewData] Slug decodificado:', decodedSlug);
+    
+    // Normaliza o slug para lowercase e trim (como é salvo no banco)
+    const normalizedSlug = decodedSlug.toLowerCase().trim();
+    console.log('[getCoursePreviewData] Slug normalizado:', normalizedSlug);
+    
+    // Tenta buscar por slug normalizado primeiro (como é salvo no banco)
     let course = await this.prisma.course.findUnique({
-      where: { id: courseIdOrSlug },
+      where: { slug: normalizedSlug },
       select: {
         id: true,
         title: true,
@@ -18,24 +33,35 @@ export class ShareService {
       },
     });
 
-    // Se não encontrou por ID, tenta buscar por slug
+    // Se não encontrou por slug normalizado, tenta buscar por ID
     if (!course) {
-      course = await this.prisma.course.findUnique({
-        where: { slug: courseIdOrSlug },
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          bannerUrl: true,
-          slug: true,
-        },
-      });
+      console.log('[getCoursePreviewData] Não encontrado por slug, tentando por ID...');
+      // Verifica se parece ser um ID (ObjectId do MongoDB tem 24 caracteres hexadecimais)
+      if (/^[0-9a-fA-F]{24}$/.test(decodedSlug)) {
+        course = await this.prisma.course.findUnique({
+          where: { id: decodedSlug },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            bannerUrl: true,
+            slug: true,
+          },
+        });
+      }
     }
 
     if (!course) {
+      console.error('[getCoursePreviewData] Curso não encontrado. Tentou:', {
+        original: courseIdOrSlug,
+        decoded: decodedSlug,
+        normalized: normalizedSlug,
+        asId: /^[0-9a-fA-F]{24}$/.test(decodedSlug) ? decodedSlug : 'não é ID válido'
+      });
       throw new NotFoundException('Curso não encontrado');
     }
 
+    console.log('[getCoursePreviewData] Curso encontrado:', course.title, 'slug:', course.slug);
     return course;
   }
 
