@@ -645,36 +645,66 @@ export class AdminCoursesService {
 
     console.log('[listEnrollments] Buscando inscrições para o curso:', courseId);
     
-    const enrollments = await this.prisma.enrollment.findMany({
-      where: { courseId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            createdAt: true,
-            state: true,
-            city: true,
-            phone: true,
+    try {
+      // Primeiro, busca os enrollments sem o include do user para evitar erro
+      const enrollmentsData = await this.prisma.enrollment.findMany({
+        where: { courseId },
+        include: {
+          course: {
+            select: {
+              title: true,
+              waitlistEnabled: true,
+              waitlistLimit: true,
+              maxEnrollments: true,
+            },
           },
+          regionQuota: true,
         },
-        course: {
-          select: {
-            title: true,
-            waitlistEnabled: true,
-            waitlistLimit: true,
-            maxEnrollments: true,
-          },
-        },
-        regionQuota: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+      });
 
-    console.log('[listEnrollments] Inscrições encontradas:', enrollments.length);
-    
-    return enrollments;
+      // Busca os users separadamente para evitar erro quando user não existe
+      const userIds = enrollmentsData.map((e) => e.userId).filter(Boolean);
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          createdAt: true,
+          state: true,
+          city: true,
+          phone: true,
+        },
+      });
+
+      // Cria um mapa de users por id
+      const userMap = new Map(users.map((u) => [u.id, u]));
+
+      // Combina os dados, filtrando apenas enrollments com user válido
+      const enrollments = enrollmentsData
+        .map((enrollment) => {
+          const user = userMap.get(enrollment.userId);
+          if (!user) {
+            return null;
+          }
+          return {
+            ...enrollment,
+            user,
+          };
+        })
+        .filter((e) => e !== null) as any[];
+
+      console.log('[listEnrollments] Inscrições encontradas:', enrollments.length);
+      if (enrollmentsData.length !== enrollments.length) {
+        console.warn(`[listEnrollments] ${enrollmentsData.length - enrollments.length} inscrições sem usuário foram filtradas`);
+      }
+
+      return enrollments;
+    } catch (error) {
+      console.error('[listEnrollments] Erro ao buscar inscrições:', error);
+      throw error;
+    }
   }
 
   private statusLabels: Record<EnrollmentStatus, string> = {
@@ -708,30 +738,63 @@ export class AdminCoursesService {
 
     console.log('[exportEnrollments] Curso encontrado:', course.title);
 
-    const enrollments = await this.prisma.enrollment.findMany({
-      where: { courseId },
-      include: {
-        user: {
-          select: {
-            name: true,
-            email: true,
-            createdAt: true,
-            phone: true,
-            state: true,
-            city: true,
+    let enrollments: any[] = [];
+    
+    try {
+      // Primeiro, busca os enrollments sem o include do user para evitar erro
+      const enrollmentsData = await this.prisma.enrollment.findMany({
+        where: { courseId },
+        include: {
+          regionQuota: {
+            select: {
+              state: true,
+              city: true,
+            },
           },
         },
-        regionQuota: {
-          select: {
-            state: true,
-            city: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+        orderBy: { createdAt: 'asc' },
+      });
 
-    console.log('[exportEnrollments] Inscrições encontradas para exportação:', enrollments.length);
+      // Busca os users separadamente para evitar erro quando user não existe
+      const userIds = enrollmentsData.map((e) => e.userId).filter(Boolean);
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          createdAt: true,
+          phone: true,
+          state: true,
+          city: true,
+        },
+      });
+
+      // Cria um mapa de users por id
+      const userMap = new Map(users.map((u) => [u.id, u]));
+
+      // Combina os dados, filtrando apenas enrollments com user válido
+      enrollments = enrollmentsData
+        .map((enrollment) => {
+          const user = userMap.get(enrollment.userId);
+          if (!user) {
+            return null;
+          }
+          return {
+            ...enrollment,
+            user,
+          };
+        })
+        .filter((e) => e !== null) as any[];
+
+      console.log('[exportEnrollments] Inscrições encontradas para exportação:', enrollments.length);
+      if (enrollmentsData.length !== enrollments.length) {
+        console.warn(`[exportEnrollments] ${enrollmentsData.length - enrollments.length} inscrições sem usuário foram filtradas`);
+      }
+    } catch (error) {
+      console.error('[exportEnrollments] Erro ao buscar inscrições:', error);
+      throw error;
+    }
 
     const availableFields = {
       number: {
