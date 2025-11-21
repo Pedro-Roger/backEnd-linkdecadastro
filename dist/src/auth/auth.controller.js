@@ -38,12 +38,12 @@ let AuthController = class AuthController {
         try {
             const googleUser = req.user;
             const result = await this.authService.googleLogin(googleUser);
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+            const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
             const redirectUrl = `${frontendUrl}/auth/google/callback?token=${result.accessToken}&user=${encodeURIComponent(JSON.stringify(result.user))}`;
             res.redirect(redirectUrl);
         }
         catch (error) {
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+            const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
             res.redirect(`${frontendUrl}/login?error=google_auth_failed`);
         }
     }

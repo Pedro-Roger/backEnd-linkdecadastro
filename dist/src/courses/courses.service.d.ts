@@ -360,4 +360,76 @@ export declare class CoursesService {
         };
         error?: undefined;
     }>;
+    enrollInCourseByEmail(courseId: string, body: {
+        email: string;
+        name?: string;
+        cpf?: string;
+        birthDate?: string;
+        participantType?: string;
+        hectares?: any;
+        state?: string;
+        city?: string;
+        whatsappNumber?: string;
+    }): Promise<{
+        error: {
+            message: string;
+            status: number;
+        };
+        enrollment?: undefined;
+        metadata?: undefined;
+        course?: undefined;
+    } | {
+        enrollment: {
+            course: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                title: string;
+                description: string | null;
+                bannerUrl: string | null;
+                status: string;
+                type: import("@prisma/client").$Enums.CourseType;
+                maxEnrollments: number | null;
+                waitlistLimit: number;
+                waitlistEnabled: boolean;
+                regionRestrictionEnabled: boolean;
+                allowAllRegions: boolean;
+                defaultRegionLimit: number | null;
+                startDate: Date | null;
+                endDate: Date | null;
+                slug: string | null;
+                createdBy: string;
+            };
+        } & {
+            id: string;
+            cpf: string | null;
+            birthDate: Date | null;
+            participantType: import("@prisma/client").$Enums.ParticipantType | null;
+            hectares: number | null;
+            state: string | null;
+            city: string | null;
+            createdAt: Date;
+            updatedAt: Date;
+            progress: number;
+            status: import("@prisma/client").$Enums.EnrollmentStatus;
+            completedAt: Date | null;
+            waitlistPosition: number | null;
+            eligibilityReason: string | null;
+            whatsappNumber: string | null;
+            userId: string;
+            courseId: string;
+            regionQuotaId: string | null;
+        };
+        metadata: {
+            isFull: boolean;
+            waitlistPosition: number | null;
+            regionQuotaId: string | null;
+        };
+        course: {
+            id: string;
+            title: string;
+            waitlistEnabled: boolean;
+        };
+        error?: undefined;
+    }>;
 }

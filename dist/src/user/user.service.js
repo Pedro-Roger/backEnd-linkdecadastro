@@ -27,6 +27,13 @@ let UserService = class UserService {
                 avatar: true,
                 bio: true,
                 role: true,
+                phone: true,
+                state: true,
+                city: true,
+                participantType: true,
+                hectares: true,
+                cpf: true,
+                birthDate: true,
                 createdAt: true,
             },
         });

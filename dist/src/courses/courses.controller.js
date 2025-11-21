@@ -63,6 +63,16 @@ let CoursesController = class CoursesController {
         }
         return result;
     }
+    async enrollByEmail(courseId, body) {
+        const result = await this.coursesService.enrollInCourseByEmail(courseId, body);
+        if ('error' in result && result.error) {
+            return {
+                error: result.error.message,
+                statusCode: result.error.status,
+            };
+        }
+        return result;
+    }
 };
 exports.CoursesController = CoursesController;
 __decorate([
@@ -114,6 +124,14 @@ __decorate([
     __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", Promise)
 ], CoursesController.prototype, "enroll", null);
+__decorate([
+    (0, common_1.Post)(':courseId/enroll-by-email'),
+    __param(0, (0, common_1.Param)('courseId')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], CoursesController.prototype, "enrollByEmail", null);
 exports.CoursesController = CoursesController = __decorate([
     (0, common_1.Controller)('courses'),
     __metadata("design:paramtypes", [courses_service_1.CoursesService,

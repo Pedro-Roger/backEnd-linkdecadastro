@@ -122,9 +122,6 @@ let AdminCoursesService = class AdminCoursesService {
         if (!course) {
             throw new common_1.NotFoundException('Curso não encontrado');
         }
-        if (course.createdBy !== userId) {
-            throw new common_1.ForbiddenException('Sem permissão para ver este curso');
-        }
         return course;
     }
     extractYouTubeId(url) {
@@ -255,9 +252,6 @@ let AdminCoursesService = class AdminCoursesService {
         if (!course) {
             throw new common_1.NotFoundException('Curso não encontrado');
         }
-        if (course.createdBy !== userId) {
-            throw new common_1.ForbiddenException('Sem permissão para excluir este curso');
-        }
         await this.prisma.course.delete({
             where: { id: courseId },
         });
@@ -269,9 +263,6 @@ let AdminCoursesService = class AdminCoursesService {
         });
         if (!existingCourse) {
             throw new common_1.NotFoundException('Curso não encontrado');
-        }
-        if (existingCourse.createdBy !== userId) {
-            throw new common_1.ForbiddenException('Sem permissão para editar este curso');
         }
         const { title, description, bannerUrl, status, type, maxEnrollments, waitlistEnabled, waitlistLimit, regionRestrictionEnabled, allowAllRegions, defaultRegionLimit, regionQuotas, startDate, endDate, slug, } = body;
         let finalBannerUrl = undefined;
@@ -414,8 +405,8 @@ let AdminCoursesService = class AdminCoursesService {
         const course = await this.prisma.course.findUnique({
             where: { id: courseId },
         });
-        if (!course || course.createdBy !== userId) {
-            throw new common_1.ForbiddenException('Curso não encontrado ou sem permissão');
+        if (!course) {
+            throw new common_1.NotFoundException('Curso não encontrado');
         }
         const youtubeId = this.extractYouTubeId(body.videoUrl);
         if (!youtubeId) {
@@ -470,9 +461,6 @@ let AdminCoursesService = class AdminCoursesService {
         if (!lesson || lesson.courseId !== courseId) {
             throw new common_1.NotFoundException('Aula não encontrada');
         }
-        if (lesson.course.createdBy !== userId) {
-            throw new common_1.ForbiddenException('Sem permissão');
-        }
         return lesson;
     }
     async updateLesson(courseId, lessonId, userId, userRole, body) {
@@ -491,9 +479,6 @@ let AdminCoursesService = class AdminCoursesService {
         });
         if (!lesson || lesson.courseId !== courseId) {
             throw new common_1.NotFoundException('Aula não encontrada');
-        }
-        if (lesson.course.createdBy !== userId) {
-            throw new common_1.ForbiddenException('Sem permissão');
         }
         const youtubeId = this.extractYouTubeId(body.videoUrl);
         if (!youtubeId) {
@@ -531,9 +516,6 @@ let AdminCoursesService = class AdminCoursesService {
         });
         if (!lesson || lesson.courseId !== courseId) {
             throw new common_1.NotFoundException('Aula não encontrada');
-        }
-        if (lesson.course.createdBy !== userId) {
-            throw new common_1.ForbiddenException('Sem permissão');
         }
         await this.prisma.lesson.delete({
             where: { id: lessonId },

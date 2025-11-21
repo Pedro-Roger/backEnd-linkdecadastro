@@ -6,6 +6,13 @@ export declare class UserController {
         id: string;
         email: string;
         name: string;
+        phone: string | null;
+        cpf: string | null;
+        birthDate: Date | null;
+        participantType: import("@prisma/client").$Enums.ParticipantType | null;
+        hectares: number | null;
+        state: string | null;
+        city: string | null;
         role: import("@prisma/client").$Enums.UserRole;
         avatar: string | null;
         bio: string | null;

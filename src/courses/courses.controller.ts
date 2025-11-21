@@ -97,12 +97,14 @@ export class CoursesController {
   }
 
   // Endpoint para inscrição vinculada ao email (sem autenticação)
+  // Cria conta automaticamente com senha padrão 123456 se email não existir
   @Post(':courseId/enroll-by-email')
   async enrollByEmail(
     @Param('courseId') courseId: string,
     @Body()
     body: {
       email: string;
+      name?: string;
       cpf?: string;
       birthDate?: string;
       participantType?: string;

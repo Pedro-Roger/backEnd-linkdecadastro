@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { EnrollmentStatus } from '@prisma/client';
+import { EnrollmentStatus, ParticipantType } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class CoursesService {
@@ -545,6 +546,7 @@ export class CoursesService {
     courseId: string,
     body: {
       email: string;
+      name?: string;
       cpf?: string;
       birthDate?: string;
       participantType?: string;
@@ -556,6 +558,7 @@ export class CoursesService {
   ) {
     const {
       email,
+      name,
       cpf,
       birthDate,
       participantType,
@@ -565,30 +568,120 @@ export class CoursesService {
       whatsappNumber,
     } = body;
 
+    console.log('[enrollInCourseByEmail] Iniciando inscrição:', {
+      courseId,
+      email,
+      name,
+    });
+
+    // Valida email
+    if (!email || typeof email !== 'string') {
+      console.error('[enrollInCourseByEmail] Email inválido:', email);
+      return {
+        error: {
+          message: 'Email é obrigatório',
+          status: 400,
+        },
+      };
+    }
+
     // Busca o usuário pelo email
-    const user = await this.prisma.user.findUnique({
+    let user = await this.prisma.user.findUnique({
       where: { email },
     });
 
+    console.log('[enrollInCourseByEmail] Usuário encontrado:', user ? user.id : 'não encontrado');
+
+    // Se não existe, cria conta com senha padrão 123456
     if (!user) {
+      if (!name) {
+        console.error('[enrollInCourseByEmail] Nome obrigatório para criar conta');
+        return {
+          error: {
+            message: 'Nome é obrigatório para criar nova conta.',
+            status: 400,
+          },
+        };
+      }
+
+      // Cria usuário com senha padrão
+      const hashedPassword = await bcrypt.hash('123456', 10);
+
+      try {
+        user = await this.prisma.user.create({
+          data: {
+            name,
+            email,
+            password: hashedPassword,
+            role: 'USER',
+            cpf: cpf || null,
+            birthDate: birthDate ? new Date(birthDate) : null,
+            participantType: participantType ? (participantType as ParticipantType) : null,
+            hectares:
+              participantType === 'PRODUTOR' && hectares
+                ? parseFloat(hectares)
+                : null,
+            state: state || null,
+            city: city || null,
+            phone: whatsappNumber || null,
+          },
+        });
+        console.log('[enrollInCourseByEmail] Usuário criado:', user.id);
+      } catch (error) {
+        console.error('[enrollInCourseByEmail] Erro ao criar usuário:', error);
+        return {
+          error: {
+            message: 'Erro ao criar conta do usuário',
+            status: 500,
+          },
+        };
+      }
+    }
+
+    // Verifica se o curso existe
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId },
+    });
+
+    if (!course) {
+      console.error('[enrollInCourseByEmail] Curso não encontrado:', courseId);
       return {
         error: {
-          message: 'Email não encontrado. Por favor, crie uma conta primeiro.',
+          message: 'Curso não encontrado',
           status: 404,
         },
       };
     }
 
-    // Usa o método existente de inscrição com o userId encontrado
-    return this.enrollInCourse(user.id, courseId, {
-      cpf,
-      birthDate,
-      participantType,
-      hectares,
-      state,
-      city,
-      whatsappNumber,
-    });
+    console.log('[enrollInCourseByEmail] Curso encontrado:', course.title);
+
+    // Usa o método existente de inscrição com o userId encontrado/criado
+    try {
+      const result = await this.enrollInCourse(user.id, courseId, {
+        cpf,
+        birthDate,
+        participantType,
+        hectares,
+        state,
+        city,
+        whatsappNumber,
+      });
+
+      console.log('[enrollInCourseByEmail] Resultado da inscrição:', {
+        hasError: 'error' in result,
+        hasEnrollment: result && 'enrollment' in result,
+      });
+
+      return result;
+    } catch (error) {
+      console.error('[enrollInCourseByEmail] Erro ao fazer inscrição:', error);
+      return {
+        error: {
+          message: error instanceof Error ? error.message : 'Erro ao processar inscrição',
+          status: 500,
+        },
+      };
+    }
   }
 }
 
