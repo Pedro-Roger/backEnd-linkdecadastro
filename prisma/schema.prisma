@@ -55,6 +55,8 @@ model User {
   birthDate             DateTime? // Data de nascimento
   participantType       ParticipantType? // Tipo de participante
   hectares              Float?  // Hectares (apenas para produtores)
+  waterArea             Float?  // Hectares de lâmina d'água (apenas para produtores)
+  ponds                 Int?    // Quantidade de viveiros (apenas para produtores)
   state                 String? // Estado
   city                  String? // Cidade
   role                  UserRole @default(USER)
@@ -235,6 +237,8 @@ model Enrollment {
   birthDate     DateTime?
   participantType ParticipantType?
   hectares      Float?  // Apenas para produtores
+  waterArea     Float?  // Hectares de lâmina d'água (apenas para produtores)
+  ponds         Int?    // Quantidade de viveiros (apenas para produtores)
   state         String?
   city          String?
   

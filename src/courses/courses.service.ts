@@ -267,6 +267,8 @@ export class CoursesService {
       birthDate?: string;
       participantType?: string;
       hectares?: any;
+      waterArea?: any;
+      ponds?: any;
       state?: string;
       city?: string;
       whatsappNumber?: string;
@@ -277,6 +279,8 @@ export class CoursesService {
       birthDate,
       participantType,
       hectares,
+      waterArea,
+      ponds,
       state,
       city,
       whatsappNumber,
@@ -434,6 +438,16 @@ export class CoursesService {
         participantType === 'PRODUTOR' && hectares
           ? parseFloat(hectares)
           : null;
+      
+      const parsedWaterArea =
+        participantType === 'PRODUTOR' && waterArea
+          ? parseFloat(waterArea)
+          : null;
+      
+      const parsedPonds =
+        participantType === 'PRODUTOR' && ponds
+          ? parseInt(ponds)
+          : null;
 
       const enrollment = await tx.enrollment.create({
         data: {
@@ -444,6 +458,8 @@ export class CoursesService {
           birthDate: birthDate ? new Date(birthDate) : null,
           participantType: (participantType as any) || null,
           hectares: parsedHectares,
+          waterArea: parsedWaterArea,
+          ponds: parsedPonds,
           state: formattedState,
           city: formattedCity,
           status: enrollmentStatus,
@@ -551,6 +567,8 @@ export class CoursesService {
       birthDate?: string;
       participantType?: string;
       hectares?: any;
+      waterArea?: any;
+      ponds?: any;
       state?: string;
       city?: string;
       whatsappNumber?: string;
@@ -563,6 +581,8 @@ export class CoursesService {
       birthDate,
       participantType,
       hectares,
+      waterArea,
+      ponds,
       state,
       city,
       whatsappNumber,
@@ -621,6 +641,14 @@ export class CoursesService {
               participantType === 'PRODUTOR' && hectares
                 ? parseFloat(hectares)
                 : null,
+            waterArea:
+              participantType === 'PRODUTOR' && waterArea
+                ? parseFloat(waterArea)
+                : null,
+            ponds:
+              participantType === 'PRODUTOR' && ponds
+                ? parseInt(ponds)
+                : null,
             state: state || null,
             city: city || null,
             phone: whatsappNumber || null,
@@ -662,6 +690,8 @@ export class CoursesService {
         birthDate,
         participantType,
         hectares,
+        waterArea,
+        ponds,
         state,
         city,
         whatsappNumber,

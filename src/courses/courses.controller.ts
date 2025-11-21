@@ -75,6 +75,8 @@ export class CoursesController {
       birthDate?: string;
       participantType?: string;
       hectares?: any;
+      waterArea?: any;
+      ponds?: any;
       state?: string;
       city?: string;
       whatsappNumber?: string;
@@ -109,6 +111,8 @@ export class CoursesController {
       birthDate?: string;
       participantType?: string;
       hectares?: any;
+      waterArea?: any;
+      ponds?: any;
       state?: string;
       city?: string;
       whatsappNumber?: string;
