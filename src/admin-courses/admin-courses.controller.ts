@@ -148,25 +148,41 @@ export class AdminCoursesController {
     @Query('fields') fields: string | string[] | undefined,
     @Req() req: any & { res?: Response },
   ) {
-    const fieldsArray =
-      typeof fields === 'string'
-        ? fields.split(',').map((f) => f.trim())
-        : (fields as string[] | undefined);
+    try {
+      console.log('[exportGet] Iniciando exportação:', { courseId, format, fields });
+      
+      const fieldsArray =
+        typeof fields === 'string'
+          ? fields.split(',').map((f) => f.trim())
+          : (fields as string[] | undefined);
 
-    const result = await this.adminCoursesService.exportEnrollments(
-      courseId,
-      req.user.role,
-      format,
-      fieldsArray,
-    );
+      const result = await this.adminCoursesService.exportEnrollments(
+        courseId,
+        req.user.role,
+        format,
+        fieldsArray,
+      );
 
-    const res = req.res as Response;
-    res.setHeader('Content-Type', result.contentType);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${result.filename}"`,
-    );
-    res.end(result.buffer);
+      console.log('[exportGet] Exportação concluída:', { 
+        contentType: result.contentType, 
+        filename: result.filename,
+        bufferSize: result.buffer?.byteLength || 0 
+      });
+
+      const res = req.res as Response;
+      res.setHeader('Content-Type', result.contentType);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${result.filename}"`,
+      );
+      res.end(result.buffer);
+    } catch (error) {
+      console.error('[exportGet] Erro ao exportar:', error);
+      const res = req.res as Response;
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Erro ao exportar dados',
+      });
+    }
   }
 }
 

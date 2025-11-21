@@ -643,7 +643,9 @@ export class AdminCoursesService {
   async listEnrollments(courseId: string, userRole?: string) {
     this.assertAdmin(userRole);
 
-    return this.prisma.enrollment.findMany({
+    console.log('[listEnrollments] Buscando inscrições para o curso:', courseId);
+    
+    const enrollments = await this.prisma.enrollment.findMany({
       where: { courseId },
       include: {
         user: {
@@ -669,6 +671,10 @@ export class AdminCoursesService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    console.log('[listEnrollments] Inscrições encontradas:', enrollments.length);
+    
+    return enrollments;
   }
 
   private statusLabels: Record<EnrollmentStatus, string> = {
@@ -686,6 +692,8 @@ export class AdminCoursesService {
   ) {
     this.assertAdmin(userRole);
 
+    console.log('[exportEnrollments] Iniciando exportação:', { courseId, formatParam, fieldsParam });
+
     const course = await this.prisma.course.findUnique({
       where: { id: courseId },
       select: {
@@ -694,8 +702,11 @@ export class AdminCoursesService {
     });
 
     if (!course) {
+      console.error('[exportEnrollments] Curso não encontrado:', courseId);
       throw new NotFoundException('Curso não encontrado');
     }
+
+    console.log('[exportEnrollments] Curso encontrado:', course.title);
 
     const enrollments = await this.prisma.enrollment.findMany({
       where: { courseId },
@@ -719,6 +730,8 @@ export class AdminCoursesService {
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    console.log('[exportEnrollments] Inscrições encontradas para exportação:', enrollments.length);
 
     const availableFields = {
       number: {
