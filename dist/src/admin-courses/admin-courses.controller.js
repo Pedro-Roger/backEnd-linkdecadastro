@@ -57,14 +57,41 @@ let AdminCoursesController = class AdminCoursesController {
         return this.adminCoursesService.listEnrollments(courseId, req.user.role);
     }
     async exportGet(courseId, format, fields, req) {
-        const fieldsArray = typeof fields === 'string'
-            ? fields.split(',').map((f) => f.trim())
-            : fields;
-        const result = await this.adminCoursesService.exportEnrollments(courseId, req.user.role, format, fieldsArray);
-        const res = req.res;
-        res.setHeader('Content-Type', result.contentType);
-        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-        res.end(result.buffer);
+        try {
+            console.log('[exportGet] Iniciando exportação:', { courseId, format, fields });
+            const fieldsArray = typeof fields === 'string'
+                ? fields.split(',').map((f) => f.trim())
+                : fields;
+            const result = await this.adminCoursesService.exportEnrollments(courseId, req.user.role, format, fieldsArray);
+            console.log('[exportGet] Exportação concluída:', {
+                contentType: result.contentType,
+                filename: result.filename,
+                bufferSize: result.buffer?.byteLength || Buffer.isBuffer(result.buffer) ? result.buffer.length : 0
+            });
+            const res = req.res;
+            res.setHeader('Content-Type', result.contentType);
+            res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+            const buffer = Buffer.isBuffer(result.buffer)
+                ? result.buffer
+                : Buffer.from(result.buffer);
+            res.end(buffer);
+        }
+        catch (error) {
+            console.error('[exportGet] Erro ao exportar:', error);
+            const res = req.res;
+            res.status(500).json({
+                error: error instanceof Error ? error.message : 'Erro ao exportar dados',
+            });
+        }
+    }
+    async listCourseClasses(courseId, req) {
+        return this.adminCoursesService.listCourseClasses(courseId, req.user.role);
+    }
+    async createCourseClass(courseId, req, body) {
+        return this.adminCoursesService.createCourseClass(courseId, req.user.role, body);
+    }
+    async closeCourseClass(classId, req) {
+        return this.adminCoursesService.closeCourseClass(classId, req.user.role);
     }
 };
 exports.AdminCoursesController = AdminCoursesController;
@@ -171,6 +198,31 @@ __decorate([
     __metadata("design:paramtypes", [String, Object, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AdminCoursesController.prototype, "exportGet", null);
+__decorate([
+    (0, common_1.Get)(':courseId/classes'),
+    __param(0, (0, common_1.Param)('courseId')),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], AdminCoursesController.prototype, "listCourseClasses", null);
+__decorate([
+    (0, common_1.Post)(':courseId/classes'),
+    __param(0, (0, common_1.Param)('courseId')),
+    __param(1, (0, common_1.Req)()),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", Promise)
+], AdminCoursesController.prototype, "createCourseClass", null);
+__decorate([
+    (0, common_1.Patch)('classes/:classId/close'),
+    __param(0, (0, common_1.Param)('classId')),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], AdminCoursesController.prototype, "closeCourseClass", null);
 exports.AdminCoursesController = AdminCoursesController = __decorate([
     (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),
     (0, common_1.Controller)('admin/courses'),

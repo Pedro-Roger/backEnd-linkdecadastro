@@ -10,7 +10,10 @@ export declare class UserController {
         cpf: string | null;
         birthDate: Date | null;
         participantType: import("@prisma/client").$Enums.ParticipantType | null;
+        schoolOrUniversity: string | null;
         hectares: number | null;
+        waterArea: number | null;
+        ponds: number | null;
         state: string | null;
         city: string | null;
         role: import("@prisma/client").$Enums.UserRole;
@@ -22,10 +25,18 @@ export declare class UserController {
         name: string;
         bio?: string;
         avatar?: string;
+        schoolOrUniversity?: string;
+        hectares?: number;
+        waterArea?: number;
+        ponds?: number;
     }): Promise<{
         id: string;
         email: string;
         name: string;
+        schoolOrUniversity: string | null;
+        hectares: number | null;
+        waterArea: number | null;
+        ponds: number | null;
         role: import("@prisma/client").$Enums.UserRole;
         avatar: string | null;
         bio: string | null;

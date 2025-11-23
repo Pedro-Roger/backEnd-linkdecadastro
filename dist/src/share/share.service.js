@@ -17,9 +17,20 @@ let ShareService = class ShareService {
     constructor(prisma) {
         this.prisma = prisma;
     }
-    async getCoursePreviewData(courseId) {
-        const course = await this.prisma.course.findUnique({
-            where: { id: courseId },
+    async getCoursePreviewData(courseIdOrSlug) {
+        console.log('[getCoursePreviewData] Buscando curso:', courseIdOrSlug);
+        let decodedSlug;
+        try {
+            decodedSlug = decodeURIComponent(courseIdOrSlug);
+        }
+        catch (e) {
+            decodedSlug = courseIdOrSlug;
+        }
+        console.log('[getCoursePreviewData] Slug decodificado:', decodedSlug);
+        const normalizedSlug = decodedSlug.toLowerCase().trim();
+        console.log('[getCoursePreviewData] Slug normalizado:', normalizedSlug);
+        let course = await this.prisma.course.findUnique({
+            where: { slug: normalizedSlug },
             select: {
                 id: true,
                 title: true,
@@ -29,8 +40,30 @@ let ShareService = class ShareService {
             },
         });
         if (!course) {
+            console.log('[getCoursePreviewData] Não encontrado por slug, tentando por ID...');
+            if (/^[0-9a-fA-F]{24}$/.test(decodedSlug)) {
+                course = await this.prisma.course.findUnique({
+                    where: { id: decodedSlug },
+                    select: {
+                        id: true,
+                        title: true,
+                        description: true,
+                        bannerUrl: true,
+                        slug: true,
+                    },
+                });
+            }
+        }
+        if (!course) {
+            console.error('[getCoursePreviewData] Curso não encontrado. Tentou:', {
+                original: courseIdOrSlug,
+                decoded: decodedSlug,
+                normalized: normalizedSlug,
+                asId: /^[0-9a-fA-F]{24}$/.test(decodedSlug) ? decodedSlug : 'não é ID válido'
+            });
             throw new common_1.NotFoundException('Curso não encontrado');
         }
+        console.log('[getCoursePreviewData] Curso encontrado:', course.title, 'slug:', course.slug);
         return course;
     }
     async getEventPreviewData(eventId) {

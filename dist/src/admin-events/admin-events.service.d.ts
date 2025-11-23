@@ -24,8 +24,6 @@ export declare class AdminEventsService {
         municipalities: {
             id: string;
             state: string;
-            municipality: string;
-            defaultLimit: number;
             classes: {
                 id: string;
                 createdAt: Date;
@@ -35,6 +33,8 @@ export declare class AdminEventsService {
                 classNumber: number;
                 closedAt: Date | null;
             }[];
+            municipality: string;
+            defaultLimit: number;
         }[];
         id: string;
         createdAt: Date;

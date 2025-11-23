@@ -31,7 +31,10 @@ let UserService = class UserService {
                 state: true,
                 city: true,
                 participantType: true,
+                schoolOrUniversity: true,
                 hectares: true,
+                waterArea: true,
+                ponds: true,
                 cpf: true,
                 birthDate: true,
                 createdAt: true,
@@ -39,12 +42,36 @@ let UserService = class UserService {
         });
     }
     async updateProfile(userId, data) {
+        const currentUser = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { participantType: true },
+        });
         return this.prisma.user.update({
             where: { id: userId },
             data: {
                 name: data.name,
                 bio: data.bio,
                 avatar: data.avatar || null,
+                schoolOrUniversity: currentUser?.participantType === 'PROFESSOR' && data.schoolOrUniversity !== undefined
+                    ? data.schoolOrUniversity
+                    : currentUser?.participantType !== 'PROFESSOR'
+                        ? null
+                        : undefined,
+                hectares: currentUser?.participantType === 'PRODUTOR' && data.hectares !== undefined
+                    ? data.hectares
+                    : currentUser?.participantType !== 'PRODUTOR'
+                        ? null
+                        : undefined,
+                waterArea: currentUser?.participantType === 'PRODUTOR' && data.waterArea !== undefined
+                    ? data.waterArea
+                    : currentUser?.participantType !== 'PRODUTOR'
+                        ? null
+                        : undefined,
+                ponds: currentUser?.participantType === 'PRODUTOR' && data.ponds !== undefined
+                    ? data.ponds
+                    : currentUser?.participantType !== 'PRODUTOR'
+                        ? null
+                        : undefined,
             },
             select: {
                 id: true,
@@ -53,6 +80,10 @@ let UserService = class UserService {
                 avatar: true,
                 bio: true,
                 role: true,
+                schoolOrUniversity: true,
+                hectares: true,
+                waterArea: true,
+                ponds: true,
             },
         });
     }

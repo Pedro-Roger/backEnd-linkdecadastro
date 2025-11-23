@@ -48,6 +48,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AdminCoursesService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const client_1 = require("@prisma/client");
 const XLSX = __importStar(require("xlsx"));
 const pdfkit_1 = __importDefault(require("pdfkit"));
 let AdminCoursesService = class AdminCoursesService {
@@ -140,13 +141,20 @@ let AdminCoursesService = class AdminCoursesService {
     async createCourse(userId, userRole, body) {
         this.assertAdmin(userRole);
         const { title, description, bannerUrl, status, type, maxEnrollments, waitlistEnabled, waitlistLimit, regionRestrictionEnabled, allowAllRegions, defaultRegionLimit, regionQuotas, startDate, endDate, slug, firstLesson, } = body;
-        if (slug && slug.trim()) {
-            const slugValue = slug.trim().toLowerCase();
-            const existingCourse = await this.prisma.course.findFirst({
-                where: { slug: slugValue },
-            });
-            if (existingCourse) {
-                throw new common_1.ForbiddenException('URL personalizada já está em uso');
+        let normalizedSlug = null;
+        if (slug !== undefined && slug !== null) {
+            const slugStr = String(slug).trim();
+            if (slugStr.length > 0) {
+                normalizedSlug = slugStr.toLowerCase();
+                if (!/^[a-z0-9-]+$/.test(normalizedSlug)) {
+                    throw new common_1.ForbiddenException('URL personalizada deve conter apenas letras minúsculas, números e hífens');
+                }
+                const existingCourse = await this.prisma.course.findFirst({
+                    where: { slug: normalizedSlug },
+                });
+                if (existingCourse) {
+                    throw new common_1.ForbiddenException('URL personalizada já está em uso');
+                }
             }
         }
         let finalBannerUrl = null;
@@ -177,9 +185,7 @@ let AdminCoursesService = class AdminCoursesService {
             endDate: endDate ? new Date(endDate) : null,
             createdBy: userId,
         };
-        if (slug && slug.trim()) {
-            courseData.slug = slug.trim().toLowerCase();
-        }
+        courseData.slug = normalizedSlug;
         const normalizedRegionQuotas = regionQuotas?.map((quota) => ({
             state: quota.state.trim().toUpperCase(),
             city: quota.city ? quota.city.trim() : null,
@@ -523,32 +529,59 @@ let AdminCoursesService = class AdminCoursesService {
     }
     async listEnrollments(courseId, userRole) {
         this.assertAdmin(userRole);
-        return this.prisma.enrollment.findMany({
-            where: { courseId },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        email: true,
-                        createdAt: true,
-                        state: true,
-                        city: true,
-                        phone: true,
+        console.log('[listEnrollments] Buscando inscrições para o curso:', courseId);
+        try {
+            const enrollmentsData = await this.prisma.enrollment.findMany({
+                where: { courseId },
+                include: {
+                    course: {
+                        select: {
+                            title: true,
+                            waitlistEnabled: true,
+                            waitlistLimit: true,
+                            maxEnrollments: true,
+                        },
                     },
+                    regionQuota: true,
                 },
-                course: {
-                    select: {
-                        title: true,
-                        waitlistEnabled: true,
-                        waitlistLimit: true,
-                        maxEnrollments: true,
-                    },
+                orderBy: { createdAt: 'desc' },
+            });
+            const userIds = enrollmentsData.map((e) => e.userId).filter(Boolean);
+            const users = await this.prisma.user.findMany({
+                where: { id: { in: userIds } },
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    createdAt: true,
+                    state: true,
+                    city: true,
+                    phone: true,
                 },
-                regionQuota: true,
-            },
-            orderBy: { createdAt: 'desc' },
-        });
+            });
+            const userMap = new Map(users.map((u) => [u.id, u]));
+            const enrollments = enrollmentsData
+                .map((enrollment) => {
+                const user = userMap.get(enrollment.userId);
+                if (!user) {
+                    return null;
+                }
+                return {
+                    ...enrollment,
+                    user,
+                };
+            })
+                .filter((e) => e !== null);
+            console.log('[listEnrollments] Inscrições encontradas:', enrollments.length);
+            if (enrollmentsData.length !== enrollments.length) {
+                console.warn(`[listEnrollments] ${enrollmentsData.length - enrollments.length} inscrições sem usuário foram filtradas`);
+            }
+            return enrollments;
+        }
+        catch (error) {
+            console.error('[listEnrollments] Erro ao buscar inscrições:', error);
+            throw error;
+        }
     }
     statusLabels = {
         CONFIRMED: 'Confirmada',
@@ -558,6 +591,7 @@ let AdminCoursesService = class AdminCoursesService {
     };
     async exportEnrollments(courseId, userRole, formatParam, fieldsParam) {
         this.assertAdmin(userRole);
+        console.log('[exportEnrollments] Iniciando exportação:', { courseId, formatParam, fieldsParam });
         const course = await this.prisma.course.findUnique({
             where: { id: courseId },
             select: {
@@ -565,30 +599,59 @@ let AdminCoursesService = class AdminCoursesService {
             },
         });
         if (!course) {
+            console.error('[exportEnrollments] Curso não encontrado:', courseId);
             throw new common_1.NotFoundException('Curso não encontrado');
         }
-        const enrollments = await this.prisma.enrollment.findMany({
-            where: { courseId },
-            include: {
-                user: {
-                    select: {
-                        name: true,
-                        email: true,
-                        createdAt: true,
-                        phone: true,
-                        state: true,
-                        city: true,
+        console.log('[exportEnrollments] Curso encontrado:', course.title);
+        let enrollments = [];
+        try {
+            const enrollmentsData = await this.prisma.enrollment.findMany({
+                where: { courseId },
+                include: {
+                    regionQuota: {
+                        select: {
+                            state: true,
+                            city: true,
+                        },
                     },
                 },
-                regionQuota: {
-                    select: {
-                        state: true,
-                        city: true,
-                    },
+                orderBy: { createdAt: 'asc' },
+            });
+            const userIds = enrollmentsData.map((e) => e.userId).filter(Boolean);
+            const users = await this.prisma.user.findMany({
+                where: { id: { in: userIds } },
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    createdAt: true,
+                    phone: true,
+                    state: true,
+                    city: true,
                 },
-            },
-            orderBy: { createdAt: 'asc' },
-        });
+            });
+            const userMap = new Map(users.map((u) => [u.id, u]));
+            enrollments = enrollmentsData
+                .map((enrollment) => {
+                const user = userMap.get(enrollment.userId);
+                if (!user) {
+                    return null;
+                }
+                return {
+                    ...enrollment,
+                    user,
+                };
+            })
+                .filter((e) => e !== null);
+            console.log('[exportEnrollments] Inscrições encontradas para exportação:', enrollments.length);
+            if (enrollmentsData.length !== enrollments.length) {
+                console.warn(`[exportEnrollments] ${enrollmentsData.length - enrollments.length} inscrições sem usuário foram filtradas`);
+            }
+        }
+        catch (error) {
+            console.error('[exportEnrollments] Erro ao buscar inscrições:', error);
+            throw error;
+        }
         const availableFields = {
             number: {
                 label: 'Nº',
@@ -630,6 +693,29 @@ let AdminCoursesService = class AdminCoursesService {
                 label: 'Cidade',
                 getter: (e) => e.city || e.user.city || '-',
             },
+            region: {
+                label: 'Região do Curso',
+                getter: (e) => {
+                    if (e.regionQuota) {
+                        return e.regionQuota.city
+                            ? `${e.regionQuota.state} - ${e.regionQuota.city}`
+                            : e.regionQuota.state;
+                    }
+                    return '-';
+                },
+            },
+            eligible: {
+                label: 'Elegível para Região',
+                getter: (e) => {
+                    if (e.status === 'PENDING_REGION') {
+                        return 'Não';
+                    }
+                    if (e.regionQuota) {
+                        return 'Sim';
+                    }
+                    return e.status === 'CONFIRMED' ? 'Sim' : 'Não';
+                },
+            },
             createdAt: {
                 label: 'Data de Inscrição',
                 getter: (e) => new Date(e.createdAt).toLocaleString(),
@@ -653,7 +739,10 @@ let AdminCoursesService = class AdminCoursesService {
             'number',
             'name',
             'email',
+            'whatsapp',
             'status',
+            'region',
+            'eligible',
             'progress',
             'createdAt',
         ];
@@ -709,9 +798,8 @@ let AdminCoursesService = class AdminCoursesService {
             }
             doc.end();
             const pdfBuffer = await pdfPromise;
-            const arrayBuffer = new Uint8Array(pdfBuffer).buffer;
             return {
-                buffer: arrayBuffer,
+                buffer: pdfBuffer,
                 contentType: 'application/pdf',
                 filename: `inscritos-${sanitizedTitle}.pdf`,
             };
@@ -734,6 +822,108 @@ let AdminCoursesService = class AdminCoursesService {
             contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             filename: `inscritos-${sanitizedTitle}.xlsx`,
         };
+    }
+    async listCourseClasses(courseId, userRole) {
+        this.assertAdmin(userRole);
+        const course = await this.prisma.course.findUnique({
+            where: { id: courseId },
+            select: {
+                id: true,
+                title: true,
+                maxEnrollments: true,
+            },
+        });
+        if (!course) {
+            throw new common_1.NotFoundException('Curso não encontrado');
+        }
+        const classes = await this.prisma.courseClass.findMany({
+            where: { courseId },
+            orderBy: { classNumber: 'asc' },
+            include: {
+                _count: {
+                    select: { enrollments: true },
+                },
+            },
+        });
+        const enrollments = await this.prisma.enrollment.findMany({
+            where: { courseId },
+            select: {
+                courseClassId: true,
+                status: true,
+            },
+        });
+        const classesWithCounts = classes.map((classItem) => {
+            const confirmedCount = enrollments.filter((e) => e.courseClassId === classItem.id &&
+                e.status === client_1.EnrollmentStatus.CONFIRMED).length;
+            return {
+                id: classItem.id,
+                classNumber: classItem.classNumber,
+                limit: classItem.limit,
+                currentCount: confirmedCount,
+                status: classItem.status,
+                createdAt: classItem.createdAt,
+                closedAt: classItem.closedAt,
+                totalEnrollments: classItem._count.enrollments,
+            };
+        });
+        const activeClass = classes.find((c) => c.status === client_1.CourseClassStatus.ACTIVE);
+        return {
+            course: {
+                id: course.id,
+                title: course.title,
+                maxEnrollments: course.maxEnrollments,
+            },
+            classes: classesWithCounts,
+            activeClassNumber: activeClass?.classNumber ?? null,
+            activeClassLimit: activeClass?.limit ?? null,
+            activeClassCount: activeClass
+                ? enrollments.filter((e) => e.courseClassId === activeClass.id &&
+                    e.status === client_1.EnrollmentStatus.CONFIRMED).length
+                : null,
+        };
+    }
+    async createCourseClass(courseId, userRole, body) {
+        this.assertAdmin(userRole);
+        const course = await this.prisma.course.findUnique({
+            where: { id: courseId },
+        });
+        if (!course) {
+            throw new common_1.NotFoundException('Curso não encontrado');
+        }
+        const lastClass = await this.prisma.courseClass.findFirst({
+            where: { courseId },
+            orderBy: { classNumber: 'desc' },
+        });
+        const nextClassNumber = lastClass ? lastClass.classNumber + 1 : 1;
+        const limit = body.limit || course.maxEnrollments || 50;
+        return this.prisma.courseClass.create({
+            data: {
+                courseId,
+                classNumber: nextClassNumber,
+                limit,
+                currentCount: 0,
+                status: client_1.CourseClassStatus.ACTIVE,
+            },
+        });
+    }
+    async closeCourseClass(classId, userRole) {
+        this.assertAdmin(userRole);
+        const classItem = await this.prisma.courseClass.findUnique({
+            where: { id: classId },
+        });
+        if (!classItem) {
+            throw new common_1.NotFoundException('Turma não encontrada');
+        }
+        if (classItem.status === client_1.CourseClassStatus.CLOSED) {
+            throw new common_1.ForbiddenException('Turma já está encerrada');
+        }
+        return this.prisma.courseClass.update({
+            where: { id: classId },
+            data: {
+                status: client_1.CourseClassStatus.CLOSED,
+                closedAt: new Date(),
+            },
+        });
     }
 };
 exports.AdminCoursesService = AdminCoursesService;

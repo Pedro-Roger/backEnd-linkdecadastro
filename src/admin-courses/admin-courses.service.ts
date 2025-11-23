@@ -118,7 +118,11 @@ export class AdminCoursesService {
   }
 
   async createCourse(userId: string, userRole: string | undefined, body: any) {
-    this.assertAdmin(userRole);
+    try {
+      this.assertAdmin(userRole);
+    } catch (error) {
+      throw error;
+    }
 
     const {
       title,
@@ -138,6 +142,10 @@ export class AdminCoursesService {
       slug,
       firstLesson,
     } = body;
+
+    if (!title || !title.trim()) {
+      throw new ForbiddenException('Título é obrigatório');
+    }
 
     // Normalizar e validar slug - tratar strings vazias como null
     let normalizedSlug: string | null = null;
@@ -190,8 +198,8 @@ export class AdminCoursesService {
       createdBy: userId,
     };
 
-    // Usar o slug normalizado (já validado acima)
-    courseData.slug = normalizedSlug;
+    // Usar o slug normalizado (já validado acima) - usar undefined em vez de null para evitar problemas
+    courseData.slug = normalizedSlug || undefined;
 
     type RegionQuotaInput = {
       state: string;
@@ -208,70 +216,77 @@ export class AdminCoursesService {
         waitlistLimit: quota.waitlistLimit ?? 0,
       })) ?? [];
 
-    const course = await this.prisma.$transaction(async (tx) => {
-      const newCourse = await tx.course.create({
-        data: courseData,
-      });
-
-      if (normalizedRegionQuotas.length > 0) {
-        await tx.courseRegionQuota.createMany({
-          data: normalizedRegionQuotas.map((quota) => ({
-            courseId: newCourse.id,
-            state: quota.state,
-            city: quota.city,
-            limit: quota.limit,
-            waitlistLimit: quota.waitlistLimit,
-          })),
+    try {
+      const course = await this.prisma.$transaction(async (tx) => {
+        const newCourse = await tx.course.create({
+          data: courseData,
         });
-      }
 
-      if (firstLesson) {
-        const youtubeId = this.extractYouTubeId(firstLesson.videoUrl);
-        if (!youtubeId) {
-          throw new Error('URL do YouTube inválida');
+        if (normalizedRegionQuotas.length > 0) {
+          await tx.courseRegionQuota.createMany({
+            data: normalizedRegionQuotas.map((quota) => ({
+              courseId: newCourse.id,
+              state: quota.state,
+              city: quota.city,
+              limit: quota.limit,
+              waitlistLimit: quota.waitlistLimit,
+            })),
+          });
         }
 
-        const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
+        if (firstLesson) {
+          const youtubeId = this.extractYouTubeId(firstLesson.videoUrl);
+          if (!youtubeId) {
+            throw new Error('URL do YouTube inválida');
+          }
 
-        await tx.lesson.create({
-          data: {
-            courseId: newCourse.id,
-            title: firstLesson.title,
-            description: firstLesson.description || null,
-            videoUrl: `https://www.youtube.com/watch?v=${youtubeId}`,
-            bannerUrl: thumbnailUrl,
-            order: firstLesson.order || 0,
+          const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
+
+          await tx.lesson.create({
+            data: {
+              courseId: newCourse.id,
+              title: firstLesson.title,
+              description: firstLesson.description || null,
+              videoUrl: `https://www.youtube.com/watch?v=${youtubeId}`,
+              bannerUrl: thumbnailUrl,
+              order: firstLesson.order || 0,
+            },
+          });
+        }
+
+        return tx.course.findUnique({
+          where: { id: newCourse.id },
+          include: {
+            creator: {
+              select: {
+                name: true,
+                email: true,
+              },
+            },
+            lessons: {
+              orderBy: { order: 'asc' },
+            },
+            regionQuotas: true,
+            _count: {
+              select: {
+                enrollments: true,
+              },
+            },
           },
         });
+      });
+
+      if (!course) {
+        throw new NotFoundException('Falha ao carregar curso recém-criado');
       }
 
-      return tx.course.findUnique({
-        where: { id: newCourse.id },
-        include: {
-          creator: {
-            select: {
-              name: true,
-              email: true,
-            },
-          },
-          lessons: {
-            orderBy: { order: 'asc' },
-          },
-          regionQuotas: true,
-          _count: {
-            select: {
-              enrollments: true,
-            },
-          },
-        },
-      });
-    });
-
-    if (!course) {
-      throw new Error('Falha ao carregar curso recém-criado');
+      return course;
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        throw new ForbiddenException('URL personalizada já está em uso');
+      }
+      throw error;
     }
-
-    return course;
   }
 
   async deleteCourse(

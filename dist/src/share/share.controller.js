@@ -68,6 +68,36 @@ let ShareController = class ShareController {
             throw new common_1.NotFoundException('Evento não encontrado');
         }
     }
+    async getEnrollShare(courseSlugOrId, res) {
+        try {
+            console.log('[getEnrollShare] Recebido:', courseSlugOrId);
+            const decodedParam = decodeURIComponent(courseSlugOrId);
+            console.log('[getEnrollShare] Parâmetro decodificado:', decodedParam);
+            const course = await this.shareService.getCoursePreviewData(decodedParam);
+            const frontendUrl = process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
+            const siteUrl = frontendUrl.replace(/\/$/, '');
+            const url = course.slug
+                ? `${siteUrl}/enroll.html?course=${encodeURIComponent(course.slug)}`
+                : `${siteUrl}/enroll.html?course=${course.id}`;
+            console.log('[getEnrollShare] URL gerada:', url);
+            const html = this.shareService.generateOpenGraphHTML({
+                title: course.title,
+                description: course.description,
+                bannerUrl: course.bannerUrl,
+                url,
+                type: 'website',
+            });
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.send(html);
+        }
+        catch (error) {
+            console.error('[getEnrollShare] Erro:', error);
+            if (error instanceof common_1.NotFoundException) {
+                throw error;
+            }
+            throw new common_1.NotFoundException('Curso não encontrado');
+        }
+    }
 };
 exports.ShareController = ShareController;
 __decorate([
@@ -86,6 +116,14 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], ShareController.prototype, "getEventShare", null);
+__decorate([
+    (0, common_1.Get)('enroll/:courseSlugOrId'),
+    __param(0, (0, common_1.Param)('courseSlugOrId')),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], ShareController.prototype, "getEnrollShare", null);
 exports.ShareController = ShareController = __decorate([
     (0, common_1.Controller)('share'),
     __metadata("design:paramtypes", [share_service_1.ShareService])

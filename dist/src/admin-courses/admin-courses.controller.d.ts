@@ -266,55 +266,52 @@ export declare class AdminCoursesController {
     deleteLesson(courseId: string, lessonId: string, req: any): Promise<{
         message: string;
     }>;
-    listEnrollments(courseId: string, req: any): Promise<({
-        user: {
-            id: string;
-            email: string;
-            name: string;
-            phone: string | null;
-            state: string | null;
-            city: string | null;
-            createdAt: Date;
-        };
-        course: {
-            title: string;
-            maxEnrollments: number | null;
-            waitlistLimit: number;
-            waitlistEnabled: boolean;
-        };
-        regionQuota: {
-            id: string;
-            state: string;
-            city: string | null;
-            createdAt: Date;
-            updatedAt: Date;
-            waitlistLimit: number;
-            courseId: string;
-            limit: number;
-            currentCount: number;
-            waitlistCount: number;
-        } | null;
-    } & {
-        id: string;
-        cpf: string | null;
-        birthDate: Date | null;
-        participantType: import("@prisma/client").$Enums.ParticipantType | null;
-        hectares: number | null;
-        state: string | null;
-        city: string | null;
-        createdAt: Date;
-        updatedAt: Date;
-        progress: number;
-        status: import("@prisma/client").$Enums.EnrollmentStatus;
-        completedAt: Date | null;
-        waitlistPosition: number | null;
-        eligibilityReason: string | null;
-        whatsappNumber: string | null;
-        userId: string;
-        courseId: string;
-        regionQuotaId: string | null;
-    })[]>;
+    listEnrollments(courseId: string, req: any): Promise<any[]>;
     exportGet(courseId: string, format: string | undefined, fields: string | string[] | undefined, req: any & {
         res?: Response;
     }): Promise<void>;
+    listCourseClasses(courseId: string, req: any): Promise<{
+        course: {
+            id: string;
+            title: string;
+            maxEnrollments: number | null;
+        };
+        classes: {
+            id: string;
+            classNumber: number;
+            limit: number;
+            currentCount: number;
+            status: import("@prisma/client").$Enums.CourseClassStatus;
+            createdAt: Date;
+            closedAt: Date | null;
+            totalEnrollments: number;
+        }[];
+        activeClassNumber: number | null;
+        activeClassLimit: number | null;
+        activeClassCount: number | null;
+    }>;
+    createCourseClass(courseId: string, req: any, body: {
+        limit: number;
+    }): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        status: import("@prisma/client").$Enums.CourseClassStatus;
+        courseId: string;
+        limit: number;
+        currentCount: number;
+        classNumber: number;
+        closedAt: Date | null;
+    }>;
+    closeCourseClass(classId: string, req: any): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        status: import("@prisma/client").$Enums.CourseClassStatus;
+        courseId: string;
+        limit: number;
+        currentCount: number;
+        classNumber: number;
+        closedAt: Date | null;
+    }>;
 }

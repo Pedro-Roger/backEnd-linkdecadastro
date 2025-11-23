@@ -5,4 +5,5 @@ export declare class ShareController {
     constructor(shareService: ShareService);
     getCourseShare(courseId: string, res: Response): Promise<void>;
     getEventShare(eventId: string, res: Response): Promise<void>;
+    getEnrollShare(courseSlugOrId: string, res: Response): Promise<void>;
 }

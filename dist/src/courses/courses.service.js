@@ -284,7 +284,7 @@ let CoursesService = class CoursesService {
         };
     }
     async enrollInCourse(userId, courseId, body) {
-        const { cpf, birthDate, participantType, hectares, state, city, whatsappNumber, } = body;
+        const { cpf, birthDate, participantType, schoolOrUniversity, hectares, waterArea, ponds, state, city, whatsappNumber, } = body;
         if (!whatsappNumber || typeof whatsappNumber !== 'string') {
             return {
                 error: {
@@ -413,6 +413,12 @@ let CoursesService = class CoursesService {
             const parsedHectares = participantType === 'PRODUTOR' && hectares
                 ? parseFloat(hectares)
                 : null;
+            const parsedWaterArea = participantType === 'PRODUTOR' && waterArea
+                ? parseFloat(waterArea)
+                : null;
+            const parsedPonds = participantType === 'PRODUTOR' && ponds
+                ? parseInt(ponds)
+                : null;
             const enrollment = await tx.enrollment.create({
                 data: {
                     userId,
@@ -421,7 +427,12 @@ let CoursesService = class CoursesService {
                     cpf: cpf || null,
                     birthDate: birthDate ? new Date(birthDate) : null,
                     participantType: participantType || null,
+                    schoolOrUniversity: participantType === 'PROFESSOR' && schoolOrUniversity
+                        ? schoolOrUniversity
+                        : null,
                     hectares: parsedHectares,
+                    waterArea: parsedWaterArea,
+                    ponds: parsedPonds,
                     state: formattedState,
                     city: formattedCity,
                     status: enrollmentStatus,
@@ -511,7 +522,7 @@ let CoursesService = class CoursesService {
         };
     }
     async enrollInCourseByEmail(courseId, body) {
-        const { email, name, cpf, birthDate, participantType, hectares, state, city, whatsappNumber, } = body;
+        const { email, name, cpf, birthDate, participantType, schoolOrUniversity, hectares, waterArea, ponds, state, city, whatsappNumber, } = body;
         console.log('[enrollInCourseByEmail] Iniciando inscrição:', {
             courseId,
             email,
@@ -551,8 +562,17 @@ let CoursesService = class CoursesService {
                         cpf: cpf || null,
                         birthDate: birthDate ? new Date(birthDate) : null,
                         participantType: participantType ? participantType : null,
+                        schoolOrUniversity: participantType === 'PROFESSOR' && schoolOrUniversity
+                            ? schoolOrUniversity
+                            : null,
                         hectares: participantType === 'PRODUTOR' && hectares
                             ? parseFloat(hectares)
+                            : null,
+                        waterArea: participantType === 'PRODUTOR' && waterArea
+                            ? parseFloat(waterArea)
+                            : null,
+                        ponds: participantType === 'PRODUTOR' && ponds
+                            ? parseInt(ponds)
                             : null,
                         state: state || null,
                         city: city || null,
@@ -589,7 +609,10 @@ let CoursesService = class CoursesService {
                 cpf,
                 birthDate,
                 participantType,
+                schoolOrUniversity,
                 hectares,
+                waterArea,
+                ponds,
                 state,
                 city,
                 whatsappNumber,

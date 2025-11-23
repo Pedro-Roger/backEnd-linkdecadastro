@@ -7,7 +7,10 @@ interface RegisterDto {
     cpf?: string;
     birthDate?: string;
     participantType?: 'ESTUDANTE' | 'PROFESSOR' | 'PESQUISADOR' | 'PRODUTOR';
+    schoolOrUniversity?: string;
     hectares?: number;
+    waterArea?: number;
+    ponds?: number;
     state?: string;
     city?: string;
     phone?: string;
@@ -36,7 +39,10 @@ export declare class AuthService {
         cpf: string | null;
         birthDate: Date | null;
         participantType: import("@prisma/client").$Enums.ParticipantType | null;
+        schoolOrUniversity: string | null;
         hectares: number | null;
+        waterArea: number | null;
+        ponds: number | null;
         state: string | null;
         city: string | null;
         role: import("@prisma/client").$Enums.UserRole;

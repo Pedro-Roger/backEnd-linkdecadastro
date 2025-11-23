@@ -47,7 +47,7 @@ export class EventsService {
         description,
         bannerUrl,
         maxRegistrations,
-        slug: normalizedSlug,
+        slug: normalizedSlug || undefined,
         linkId,
         createdBy: userId,
         status: 'ACTIVE',

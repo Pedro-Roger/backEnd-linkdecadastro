@@ -220,7 +220,10 @@ export declare class CoursesController {
             cpf: string | null;
             birthDate: Date | null;
             participantType: import("@prisma/client").$Enums.ParticipantType | null;
+            schoolOrUniversity: string | null;
             hectares: number | null;
+            waterArea: number | null;
+            ponds: number | null;
             state: string | null;
             city: string | null;
             createdAt: Date;
@@ -233,6 +236,7 @@ export declare class CoursesController {
             whatsappNumber: string | null;
             userId: string;
             courseId: string;
+            courseClassId: string | null;
             regionQuotaId: string | null;
         };
         progress: number;
@@ -297,7 +301,10 @@ export declare class CoursesController {
         cpf?: string;
         birthDate?: string;
         participantType?: string;
+        schoolOrUniversity?: string;
         hectares?: any;
+        waterArea?: any;
+        ponds?: any;
         state?: string;
         city?: string;
         whatsappNumber?: string;
@@ -328,7 +335,10 @@ export declare class CoursesController {
             cpf: string | null;
             birthDate: Date | null;
             participantType: import("@prisma/client").$Enums.ParticipantType | null;
+            schoolOrUniversity: string | null;
             hectares: number | null;
+            waterArea: number | null;
+            ponds: number | null;
             state: string | null;
             city: string | null;
             createdAt: Date;
@@ -341,6 +351,7 @@ export declare class CoursesController {
             whatsappNumber: string | null;
             userId: string;
             courseId: string;
+            courseClassId: string | null;
             regionQuotaId: string | null;
         };
         metadata: {
@@ -364,7 +375,10 @@ export declare class CoursesController {
         cpf?: string;
         birthDate?: string;
         participantType?: string;
+        schoolOrUniversity?: string;
         hectares?: any;
+        waterArea?: any;
+        ponds?: any;
         state?: string;
         city?: string;
         whatsappNumber?: string;
@@ -395,7 +409,10 @@ export declare class CoursesController {
             cpf: string | null;
             birthDate: Date | null;
             participantType: import("@prisma/client").$Enums.ParticipantType | null;
+            schoolOrUniversity: string | null;
             hectares: number | null;
+            waterArea: number | null;
+            ponds: number | null;
             state: string | null;
             city: string | null;
             createdAt: Date;
@@ -408,6 +425,7 @@ export declare class CoursesController {
             whatsappNumber: string | null;
             userId: string;
             courseId: string;
+            courseClassId: string | null;
             regionQuotaId: string | null;
         };
         metadata: {
