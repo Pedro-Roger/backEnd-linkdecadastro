@@ -1129,14 +1129,66 @@ export class AdminCoursesService {
     // Se não há limite específico, usar o maxEnrollments do curso
     const limit = body.limit || course.maxEnrollments || 50;
 
-    return (this.prisma as any).courseClass.create({
-      data: {
-        courseId,
-        classNumber: nextClassNumber,
-        limit,
-        currentCount: 0,
-        status: CourseClassStatus.ACTIVE,
-      },
+    return await this.prisma.$transaction(async (tx) => {
+      // Criar a nova turma
+      const newClass = await (tx as any).courseClass.create({
+        data: {
+          courseId,
+          classNumber: nextClassNumber,
+          limit,
+          currentCount: 0,
+          status: CourseClassStatus.ACTIVE,
+        },
+      });
+
+      // Buscar pessoas na lista de espera (status WAITLIST) ordenadas por waitlistPosition
+      const waitlistEnrollments = await tx.enrollment.findMany({
+        where: {
+          courseId,
+          status: EnrollmentStatus.WAITLIST,
+        },
+        orderBy: {
+          waitlistPosition: 'asc',
+        },
+        take: limit, // Pegar até o limite da turma
+      });
+
+      // Mover pessoas da lista de espera para a nova turma
+      let allocatedCount = 0;
+      for (const enrollment of waitlistEnrollments) {
+        if (allocatedCount >= limit) break;
+
+        await tx.enrollment.update({
+          where: { id: enrollment.id },
+          data: {
+            status: EnrollmentStatus.CONFIRMED,
+            courseClassId: newClass.id,
+            waitlistPosition: null,
+          },
+        });
+
+        allocatedCount++;
+      }
+
+      // Atualizar o contador da turma
+      await (tx as any).courseClass.update({
+        where: { id: newClass.id },
+        data: {
+          currentCount: allocatedCount,
+        },
+      });
+
+      // Buscar informações completas da turma criada
+      return await (tx as any).courseClass.findUnique({
+        where: { id: newClass.id },
+        include: {
+          _count: {
+            select: {
+              enrollments: true,
+            },
+          },
+        },
+      });
     });
   }
 
