@@ -2,9 +2,24 @@
 
 Este módulo fornece integração com WhatsApp Web usando a biblioteca `whatsapp-web.js`.
 
+## ⚠️ Configuração para Produção (Render, etc)
+
+O WhatsApp service pode não funcionar automaticamente em ambientes de produção devido a limitações do Puppeteer. Para desabilitar a inicialização automática e inicializar manualmente via endpoint:
+
+**Variáveis de Ambiente:**
+```bash
+WHATSAPP_SKIP_AUTO_INIT=true
+NODE_ENV=production
+```
+
+Quando `WHATSAPP_SKIP_AUTO_INIT=true`, o serviço não tentará inicializar automaticamente ao iniciar o servidor. Você pode inicializar manualmente chamando o endpoint `GET /api/whatsapp/status`.
+
 ## Configuração
 
-O serviço é inicializado automaticamente quando o módulo é carregado. A primeira vez que for executado, será necessário escanear o QR Code para autenticação.
+O serviço pode ser inicializado de duas formas:
+
+1. **Automática** (desenvolvimento): Inicializa automaticamente ao iniciar o servidor
+2. **Manual** (produção): Use o endpoint `/api/whatsapp/status` para inicializar quando necessário
 
 ## Endpoints
 
@@ -39,6 +54,8 @@ Retorna o status atual da conexão WhatsApp e o QR Code (se disponível).
   "qrCodeBase64": "data:image/png;base64,..."
 }
 ```
+
+**Nota:** Se o serviço não estiver inicializado, chamar este endpoint irá inicializá-lo automaticamente.
 
 ### 2. POST `/api/whatsapp/criar-grupo-filtrado`
 
@@ -170,6 +187,8 @@ Authorization: Bearer <seu_token>
 
 A sessão do WhatsApp é armazenada localmente no diretório `.wwebjs_auth`. Isso significa que após a primeira autenticação, não será necessário escanear o QR Code novamente, a menos que a sessão expire ou seja deletada.
 
+**Nota:** Em ambientes de produção como Render, você pode precisar usar um volume persistente ou banco de dados para armazenar a sessão.
+
 ## Tratamento de Erros
 
 Todos os endpoints retornam erros no formato:
@@ -186,3 +205,29 @@ Códigos HTTP:
 - `400`: Erro de validação (payload inválido)
 - `401`: Não autenticado
 - `500`: Erro interno do servidor
+
+## Solução de Problemas
+
+### Servidor não inicia no Render
+
+Se o servidor não inicia devido ao WhatsApp service:
+
+1. Adicione a variável de ambiente:
+   ```
+   WHATSAPP_SKIP_AUTO_INIT=true
+   ```
+
+2. O servidor iniciará normalmente sem tentar conectar ao WhatsApp
+
+3. Para usar o WhatsApp, chame manualmente:
+   ```
+   GET /api/whatsapp/status
+   ```
+   Isso inicializará o serviço sob demanda.
+
+### Puppeteer não funciona em produção
+
+O Puppeteer (usado pelo whatsapp-web.js) pode ter problemas em ambientes serverless. Considere:
+- Usar um serviço dedicado para WhatsApp
+- Usar Docker com Chrome/Chromium pré-instalado
+- Usar uma alternativa como API oficial do WhatsApp Business

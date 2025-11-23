@@ -34,7 +34,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
-    await this.initializeClient();
+    // Inicializar de forma assíncrona sem bloquear o servidor
+    this.initializeClient().catch((error) => {
+      console.error('Erro ao inicializar WhatsApp (não crítico):', error);
+      // Não lançar erro para não bloquear o servidor
+    });
   }
 
   async onModuleDestroy() {
@@ -45,6 +49,16 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   private async initializeClient() {
     if (this.client) {
+      return;
+    }
+
+    // Verificar se estamos em ambiente de produção (Render, etc) e pular inicialização automática
+    const isProduction = process.env.NODE_ENV === 'production';
+    const skipAutoInit = process.env.WHATSAPP_SKIP_AUTO_INIT === 'true';
+    
+    if (isProduction && skipAutoInit) {
+      console.log('WhatsApp: Inicialização automática desabilitada. Use o endpoint /api/whatsapp/status para inicializar manualmente.');
+      this.status = WhatsAppStatus.DISCONNECTED;
       return;
     }
 
@@ -121,8 +135,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     qrCode?: string;
     qrCodeBase64?: string;
   }> {
+    // Se não há cliente e não está em modo de pular auto-init, inicializar
     if (!this.client) {
-      await this.initializeClient();
+      const isProduction = process.env.NODE_ENV === 'production';
+      const skipAutoInit = process.env.WHATSAPP_SKIP_AUTO_INIT === 'true';
+      
+      if (!(isProduction && skipAutoInit)) {
+        await this.initializeClient();
+      }
     }
 
     return {
