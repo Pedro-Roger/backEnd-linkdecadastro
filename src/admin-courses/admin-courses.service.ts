@@ -1158,7 +1158,7 @@ export class AdminCoursesService {
       for (const enrollment of waitlistEnrollments) {
         if (allocatedCount >= limit) break;
 
-        await tx.enrollment.update({
+        await (tx.enrollment.update as any)({
           where: { id: enrollment.id },
           data: {
             status: EnrollmentStatus.CONFIRMED,
