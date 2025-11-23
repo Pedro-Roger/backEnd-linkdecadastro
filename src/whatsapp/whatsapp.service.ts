@@ -186,10 +186,23 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     try {
       // Criar grupo
-      const groupId = await this.client.createGroup(tituloGrupo, contatosIds);
+      const groupResult = await this.client.createGroup(tituloGrupo, contatosIds);
+
+      // O retorno pode ser uma string (ID do grupo) ou um objeto CreateGroupResult
+      let grupoId: string;
+      if (typeof groupResult === 'string') {
+        grupoId = groupResult;
+      } else {
+        grupoId = (groupResult as any).gid?._serialized || (groupResult as any).gid || groupResult;
+      }
+
+      // Garantir que o ID está no formato correto (@g.us)
+      if (!grupoId.includes('@g.us')) {
+        grupoId = `${grupoId}@g.us`;
+      }
 
       return {
-        grupoId: groupId.gid._serialized,
+        grupoId,
         participantesAdicionados: contatosIds,
         totalFiltrados: participantesFiltrados.length,
       };
