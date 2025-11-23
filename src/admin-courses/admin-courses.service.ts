@@ -715,13 +715,17 @@ export class AdminCoursesService {
           if (!user) {
             return null;
           }
-          const courseClass = enrollment.courseClassId
-            ? classMap.get(enrollment.courseClassId)
-            : null;
+          let courseClassData: { classNumber: number } | null = null;
+          if (enrollment.courseClassId) {
+            const foundClass = classMap.get(enrollment.courseClassId) as { id: string; classNumber: number } | undefined;
+            if (foundClass) {
+              courseClassData = { classNumber: foundClass.classNumber };
+            }
+          }
           return {
             ...enrollment,
             user,
-            courseClass: courseClass ? { classNumber: courseClass.classNumber } : null,
+            courseClass: courseClassData,
           };
         })
         .filter((e) => e !== null) as any[];
