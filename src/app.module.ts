@@ -14,6 +14,7 @@ import { AdminCoursesModule } from './admin-courses/admin-courses.module';
 import { AdminEventsModule } from './admin-events/admin-events.module';
 import { AdminUploadModule } from './admin-upload/admin-upload.module';
 import { ShareModule } from './share/share.module';
+import { WhatsAppModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { ShareModule } from './share/share.module';
     AdminEventsModule,
     AdminUploadModule,
     ShareModule,
+    WhatsAppModule,
   ],
   controllers: [AppController],
   providers: [AppService],
