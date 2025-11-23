@@ -131,14 +131,23 @@ export class AdminCoursesService {
       firstLesson,
     } = body;
 
-    // Validar slug apenas se fornecido e não vazio
-    if (slug && typeof slug === 'string' && slug.trim()) {
-      const slugValue = slug.trim().toLowerCase();
-      const existingCourse = await this.prisma.course.findFirst({
-        where: { slug: slugValue },
-      });
-      if (existingCourse) {
-        throw new ForbiddenException('URL personalizada já está em uso');
+    // Normalizar e validar slug - tratar strings vazias como null
+    let normalizedSlug: string | null = null;
+    if (slug !== undefined && slug !== null) {
+      const slugStr = String(slug).trim();
+      if (slugStr.length > 0) {
+        normalizedSlug = slugStr.toLowerCase();
+        // Validar formato do slug
+        if (!/^[a-z0-9-]+$/.test(normalizedSlug)) {
+          throw new ForbiddenException('URL personalizada deve conter apenas letras minúsculas, números e hífens');
+        }
+        // Verificar se já existe
+        const existingCourse = await this.prisma.course.findFirst({
+          where: { slug: normalizedSlug },
+        });
+        if (existingCourse) {
+          throw new ForbiddenException('URL personalizada já está em uso');
+        }
       }
     }
 
@@ -173,13 +182,8 @@ export class AdminCoursesService {
       createdBy: userId,
     };
 
-    // Apenas adicionar slug se fornecido, não vazio e válido
-    if (slug && typeof slug === 'string' && slug.trim()) {
-      courseData.slug = slug.trim().toLowerCase();
-    } else {
-      // Garantir que slug seja null (não undefined) para evitar problemas com unique constraint
-      courseData.slug = null;
-    }
+    // Usar o slug normalizado (já validado acima)
+    courseData.slug = normalizedSlug;
 
     type RegionQuotaInput = {
       state: string;
