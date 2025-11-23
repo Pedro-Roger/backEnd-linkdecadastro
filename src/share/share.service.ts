@@ -6,8 +6,6 @@ export class ShareService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getCoursePreviewData(courseIdOrSlug: string) {
-    console.log('[getCoursePreviewData] Buscando curso:', courseIdOrSlug);
-    
     // Decodifica o slug caso tenha sido codificado na URL
     let decodedSlug: string;
     try {
@@ -15,11 +13,9 @@ export class ShareService {
     } catch (e) {
       decodedSlug = courseIdOrSlug;
     }
-    console.log('[getCoursePreviewData] Slug decodificado:', decodedSlug);
     
     // Normaliza o slug para lowercase e trim (como é salvo no banco)
     const normalizedSlug = decodedSlug.toLowerCase().trim();
-    console.log('[getCoursePreviewData] Slug normalizado:', normalizedSlug);
     
     // Tenta buscar por slug normalizado primeiro (como é salvo no banco)
     let course = await this.prisma.course.findUnique({
@@ -35,7 +31,6 @@ export class ShareService {
 
     // Se não encontrou por slug normalizado, tenta buscar por ID
     if (!course) {
-      console.log('[getCoursePreviewData] Não encontrado por slug, tentando por ID...');
       // Verifica se parece ser um ID (ObjectId do MongoDB tem 24 caracteres hexadecimais)
       if (/^[0-9a-fA-F]{24}$/.test(decodedSlug)) {
         course = await this.prisma.course.findUnique({
@@ -52,30 +47,66 @@ export class ShareService {
     }
 
     if (!course) {
-      console.error('[getCoursePreviewData] Curso não encontrado. Tentou:', {
-        original: courseIdOrSlug,
-        decoded: decodedSlug,
-        normalized: normalizedSlug,
-        asId: /^[0-9a-fA-F]{24}$/.test(decodedSlug) ? decodedSlug : 'não é ID válido'
-      });
       throw new NotFoundException('Curso não encontrado');
     }
 
-    console.log('[getCoursePreviewData] Curso encontrado:', course.title, 'slug:', course.slug);
     return course;
   }
 
-  async getEventPreviewData(eventId: string) {
-    const event = await this.prisma.event.findUnique({
-      where: { id: eventId },
+  async getEventPreviewData(eventIdOrSlug: string) {
+    // Decodifica o slug caso tenha sido codificado na URL
+    let decodedSlug: string;
+    try {
+      decodedSlug = decodeURIComponent(eventIdOrSlug);
+    } catch (e) {
+      decodedSlug = eventIdOrSlug;
+    }
+    
+    // Normaliza o slug para lowercase e trim (como é salvo no banco)
+    const normalizedSlug = decodedSlug.toLowerCase().trim();
+    
+    // Tenta buscar por slug normalizado primeiro
+    let event = await this.prisma.event.findUnique({
+      where: { slug: normalizedSlug },
       select: {
         id: true,
         title: true,
         description: true,
         bannerUrl: true,
         linkId: true,
+        slug: true,
       },
     });
+
+    // Se não encontrou por slug, tenta buscar por ID
+    if (!event) {
+      if (/^[0-9a-fA-F]{24}$/.test(decodedSlug)) {
+        event = await this.prisma.event.findUnique({
+          where: { id: decodedSlug },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            bannerUrl: true,
+            linkId: true,
+            slug: true,
+          },
+        });
+      } else {
+        // Tenta buscar por linkId também
+        event = await this.prisma.event.findUnique({
+          where: { linkId: decodedSlug },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            bannerUrl: true,
+            linkId: true,
+            slug: true,
+          },
+        });
+      }
+    }
 
     if (!event) {
       throw new NotFoundException('Evento não encontrado');

@@ -25,7 +25,19 @@ export class EventsService {
       throw new ForbiddenException('Não autorizado');
     }
 
-    const { title, description, bannerUrl, maxRegistrations } = body;
+    const { title, description, bannerUrl, maxRegistrations, slug } = body;
+
+    // Normalizar e validar slug
+    let normalizedSlug: string | null = null;
+    if (slug && typeof slug === 'string' && slug.trim()) {
+      normalizedSlug = slug.trim().toLowerCase();
+      // Validar formato do slug (apenas letras minúsculas, números e hífens)
+      if (!/^[a-z0-9-]+$/.test(normalizedSlug)) {
+        throw new ForbiddenException('Slug inválido. Use apenas letras minúsculas, números e hífens.');
+      }
+    } else {
+      normalizedSlug = null;
+    }
 
     const linkId = `evt-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
@@ -35,6 +47,7 @@ export class EventsService {
         description,
         bannerUrl,
         maxRegistrations,
+        slug: normalizedSlug,
         linkId,
         createdBy: userId,
         status: 'ACTIVE',
@@ -45,6 +58,28 @@ export class EventsService {
   async getEventByLink(linkId: string) {
     const event = await this.prisma.event.findUnique({
       where: { linkId },
+      include: {
+        _count: {
+          select: { registrations: true },
+        },
+      },
+    });
+
+    if (!event) {
+      throw new NotFoundException('Evento não encontrado');
+    }
+
+    if (event.status !== 'ACTIVE') {
+      throw new ForbiddenException('Evento não está ativo');
+    }
+
+    return event;
+  }
+
+  async getEventBySlug(slug: string) {
+    const normalizedSlug = slug.toLowerCase().trim();
+    const event = await this.prisma.event.findUnique({
+      where: { slug: normalizedSlug },
       include: {
         _count: {
           select: { registrations: true },

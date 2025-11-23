@@ -22,6 +22,11 @@ export class EventsController {
   async getEventByLink(@Param('linkId') linkId: string) {
     return this.eventsService.getEventByLink(linkId);
   }
+
+  @Get('slug/:slug')
+  async getEventBySlug(@Param('slug') slug: string) {
+    return this.eventsService.getEventBySlug(slug);
+  }
 }
 
 

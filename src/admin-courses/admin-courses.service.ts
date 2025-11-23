@@ -5,6 +5,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EnrollmentStatus } from '@prisma/client';
+
+// Enum de status das turmas
+const CourseClassStatus = {
+  ACTIVE: 'ACTIVE',
+  CLOSED: 'CLOSED',
+} as const;
+
+type CourseClassStatus = 'ACTIVE' | 'CLOSED';
 import * as XLSX from 'xlsx';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - pdfkit não possui tipos completos
@@ -651,8 +659,6 @@ export class AdminCoursesService {
 
   async listEnrollments(courseId: string, userRole?: string) {
     this.assertAdmin(userRole);
-
-    console.log('[listEnrollments] Buscando inscrições para o curso:', courseId);
     
     try {
       // Primeiro, busca os enrollments sem o include do user para evitar erro
@@ -690,28 +696,38 @@ export class AdminCoursesService {
       // Cria um mapa de users por id
       const userMap = new Map(users.map((u) => [u.id, u]));
 
+      // Busca informações das turmas
+      const courseClassIds = enrollmentsData
+        .map((e: any) => e.courseClassId)
+        .filter(Boolean);
+      const courseClasses = courseClassIds.length > 0
+        ? await (this.prisma as any).courseClass.findMany({
+            where: { id: { in: courseClassIds } },
+            select: { id: true, classNumber: true },
+          })
+        : [];
+      const classMap = new Map(courseClasses.map((c: any) => [c.id, c]));
+
       // Combina os dados, filtrando apenas enrollments com user válido
       const enrollments = enrollmentsData
-        .map((enrollment) => {
+        .map((enrollment: any) => {
           const user = userMap.get(enrollment.userId);
           if (!user) {
             return null;
           }
+          const courseClass = enrollment.courseClassId
+            ? classMap.get(enrollment.courseClassId)
+            : null;
           return {
             ...enrollment,
             user,
+            courseClass: courseClass ? { classNumber: courseClass.classNumber } : null,
           };
         })
         .filter((e) => e !== null) as any[];
 
-      console.log('[listEnrollments] Inscrições encontradas:', enrollments.length);
-      if (enrollmentsData.length !== enrollments.length) {
-        console.warn(`[listEnrollments] ${enrollmentsData.length - enrollments.length} inscrições sem usuário foram filtradas`);
-      }
-
       return enrollments;
     } catch (error) {
-      console.error('[listEnrollments] Erro ao buscar inscrições:', error);
       throw error;
     }
   }
@@ -731,8 +747,6 @@ export class AdminCoursesService {
   ) {
     this.assertAdmin(userRole);
 
-    console.log('[exportEnrollments] Iniciando exportação:', { courseId, formatParam, fieldsParam });
-
     const course = await this.prisma.course.findUnique({
       where: { id: courseId },
       select: {
@@ -741,11 +755,8 @@ export class AdminCoursesService {
     });
 
     if (!course) {
-      console.error('[exportEnrollments] Curso não encontrado:', courseId);
       throw new NotFoundException('Curso não encontrado');
     }
-
-    console.log('[exportEnrollments] Curso encontrado:', course.title);
 
     let enrollments: any[] = [];
     
@@ -795,13 +806,7 @@ export class AdminCoursesService {
           };
         })
         .filter((e) => e !== null) as any[];
-
-      console.log('[exportEnrollments] Inscrições encontradas para exportação:', enrollments.length);
-      if (enrollmentsData.length !== enrollments.length) {
-        console.warn(`[exportEnrollments] ${enrollmentsData.length - enrollments.length} inscrições sem usuário foram filtradas`);
-      }
     } catch (error) {
-      console.error('[exportEnrollments] Erro ao buscar inscrições:', error);
       throw error;
     }
 
@@ -1003,6 +1008,141 @@ export class AdminCoursesService {
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       filename: `inscritos-${sanitizedTitle}.xlsx`,
     };
+  }
+
+  // ========== GESTÃO DE TURMAS (COURSE CLASSES) ==========
+
+  async listCourseClasses(courseId: string, userRole: string | undefined) {
+    this.assertAdmin(userRole);
+
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId },
+      select: {
+        id: true,
+        title: true,
+        maxEnrollments: true,
+      },
+    });
+
+    if (!course) {
+      throw new NotFoundException('Curso não encontrado');
+    }
+
+    const classes = await (this.prisma as any).courseClass.findMany({
+      where: { courseId },
+      orderBy: { classNumber: 'asc' },
+      include: {
+        _count: {
+          select: { enrollments: true },
+        },
+      },
+    });
+
+    const enrollments = await this.prisma.enrollment.findMany({
+      where: { courseId },
+    }) as any[];
+
+    const classesWithCounts = classes.map((classItem: any) => {
+      const confirmedCount = enrollments.filter(
+        (e: any) =>
+          e.courseClassId === classItem.id &&
+          e.status === EnrollmentStatus.CONFIRMED,
+      ).length;
+
+      return {
+        id: classItem.id,
+        classNumber: classItem.classNumber,
+        limit: classItem.limit,
+        currentCount: confirmedCount,
+        status: classItem.status,
+        createdAt: classItem.createdAt,
+        closedAt: classItem.closedAt,
+        totalEnrollments: classItem._count.enrollments,
+      };
+    });
+
+    const activeClass = classes.find(
+      (c: any) => c.status === CourseClassStatus.ACTIVE,
+    );
+
+    return {
+      course: {
+        id: course.id,
+        title: course.title,
+        maxEnrollments: course.maxEnrollments,
+      },
+      classes: classesWithCounts,
+      activeClassNumber: activeClass?.classNumber ?? null,
+      activeClassLimit: activeClass?.limit ?? null,
+      activeClassCount: activeClass
+        ? enrollments.filter(
+            (e: any) =>
+              e.courseClassId === activeClass.id &&
+              e.status === EnrollmentStatus.CONFIRMED,
+          ).length
+        : null,
+    };
+  }
+
+  async createCourseClass(
+    courseId: string,
+    userRole: string | undefined,
+    body: { limit: number },
+  ) {
+    this.assertAdmin(userRole);
+
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId },
+    });
+
+    if (!course) {
+      throw new NotFoundException('Curso não encontrado');
+    }
+
+    // Buscar a última turma para determinar o próximo número
+    const lastClass = await (this.prisma as any).courseClass.findFirst({
+      where: { courseId },
+      orderBy: { classNumber: 'desc' },
+    });
+
+    const nextClassNumber = lastClass ? lastClass.classNumber + 1 : 1;
+
+    // Se não há limite específico, usar o maxEnrollments do curso
+    const limit = body.limit || course.maxEnrollments || 50;
+
+    return (this.prisma as any).courseClass.create({
+      data: {
+        courseId,
+        classNumber: nextClassNumber,
+        limit,
+        currentCount: 0,
+        status: CourseClassStatus.ACTIVE,
+      },
+    });
+  }
+
+  async closeCourseClass(classId: string, userRole: string | undefined) {
+    this.assertAdmin(userRole);
+
+    const classItem = await (this.prisma as any).courseClass.findUnique({
+      where: { id: classId },
+    });
+
+    if (!classItem) {
+      throw new NotFoundException('Turma não encontrada');
+    }
+
+    if (classItem.status === CourseClassStatus.CLOSED) {
+      throw new ForbiddenException('Turma já está encerrada');
+    }
+
+    return (this.prisma as any).courseClass.update({
+      where: { id: classId },
+      data: {
+        status: CourseClassStatus.CLOSED,
+        closedAt: new Date(),
+      },
+    });
   }
 }
 

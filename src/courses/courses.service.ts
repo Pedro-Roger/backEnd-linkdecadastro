@@ -451,10 +451,81 @@ export class CoursesService {
           ? parseInt(ponds)
           : null;
 
+      // Buscar ou criar turma ativa para o curso
+      let activeCourseClass: any = null;
+      if (enrollmentStatus === EnrollmentStatus.CONFIRMED) {
+        activeCourseClass = await (tx as any).courseClass.findFirst({
+          where: {
+            courseId,
+            status: 'ACTIVE',
+          },
+          orderBy: {
+            classNumber: 'desc',
+          },
+        });
+
+        // Se não há turma ativa, criar uma nova
+        if (!activeCourseClass) {
+          const lastClass = await (tx as any).courseClass.findFirst({
+            where: { courseId },
+            orderBy: { classNumber: 'desc' },
+          });
+          const nextClassNumber = lastClass ? lastClass.classNumber + 1 : 1;
+          const classLimit = course.maxEnrollments || 50;
+
+          activeCourseClass = await (tx as any).courseClass.create({
+            data: {
+              courseId,
+              classNumber: nextClassNumber,
+              limit: classLimit,
+              currentCount: 0,
+              status: 'ACTIVE',
+            },
+          });
+        }
+
+        // Se a turma atingiu o limite, fechar e criar nova
+        if (activeCourseClass.currentCount >= activeCourseClass.limit) {
+          await (tx as any).courseClass.update({
+            where: { id: activeCourseClass.id },
+            data: {
+              status: 'CLOSED',
+              closedAt: new Date(),
+            },
+          });
+
+          const lastClass = await (tx as any).courseClass.findFirst({
+            where: { courseId },
+            orderBy: { classNumber: 'desc' },
+          });
+          const nextClassNumber = lastClass ? lastClass.classNumber + 1 : 1;
+          const classLimit = course.maxEnrollments || 50;
+
+          activeCourseClass = await (tx as any).courseClass.create({
+            data: {
+              courseId,
+              classNumber: nextClassNumber,
+              limit: classLimit,
+              currentCount: 0,
+              status: 'ACTIVE',
+            },
+          });
+        }
+
+        // Incrementar contador da turma
+        await (tx as any).courseClass.update({
+          where: { id: activeCourseClass.id },
+          data: {
+            currentCount: { increment: 1 },
+          },
+        });
+      }
+
       const enrollment = await tx.enrollment.create({
         data: {
           userId,
           courseId,
+          courseClassId: activeCourseClass?.id || null,
           progress: 0,
           cpf: cpf || null,
           birthDate: birthDate ? new Date(birthDate) : null,
@@ -473,7 +544,7 @@ export class CoursesService {
           regionQuotaId,
           eligibilityReason,
           whatsappNumber,
-        },
+        } as any,
         include: {
           course: true,
         },
@@ -596,15 +667,8 @@ export class CoursesService {
       whatsappNumber,
     } = body;
 
-    console.log('[enrollInCourseByEmail] Iniciando inscrição:', {
-      courseId,
-      email,
-      name,
-    });
-
     // Valida email
     if (!email || typeof email !== 'string') {
-      console.error('[enrollInCourseByEmail] Email inválido:', email);
       return {
         error: {
           message: 'Email é obrigatório',
@@ -618,12 +682,9 @@ export class CoursesService {
       where: { email },
     });
 
-    console.log('[enrollInCourseByEmail] Usuário encontrado:', user ? user.id : 'não encontrado');
-
     // Se não existe, cria conta com senha padrão 123456
     if (!user) {
       if (!name) {
-        console.error('[enrollInCourseByEmail] Nome obrigatório para criar conta');
         return {
           error: {
             message: 'Nome é obrigatório para criar nova conta.',
@@ -666,9 +727,7 @@ export class CoursesService {
             phone: whatsappNumber || null,
           },
         });
-        console.log('[enrollInCourseByEmail] Usuário criado:', user.id);
       } catch (error) {
-        console.error('[enrollInCourseByEmail] Erro ao criar usuário:', error);
         return {
           error: {
             message: 'Erro ao criar conta do usuário',
@@ -684,7 +743,6 @@ export class CoursesService {
     });
 
     if (!course) {
-      console.error('[enrollInCourseByEmail] Curso não encontrado:', courseId);
       return {
         error: {
           message: 'Curso não encontrado',
@@ -692,8 +750,6 @@ export class CoursesService {
         },
       };
     }
-
-    console.log('[enrollInCourseByEmail] Curso encontrado:', course.title);
 
     // Usa o método existente de inscrição com o userId encontrado/criado
     try {
@@ -710,14 +766,8 @@ export class CoursesService {
         whatsappNumber,
       });
 
-      console.log('[enrollInCourseByEmail] Resultado da inscrição:', {
-        hasError: 'error' in result,
-        hasEnrollment: result && 'enrollment' in result,
-      });
-
       return result;
     } catch (error) {
-      console.error('[enrollInCourseByEmail] Erro ao fazer inscrição:', error);
       return {
         error: {
           message: error instanceof Error ? error.message : 'Erro ao processar inscrição',

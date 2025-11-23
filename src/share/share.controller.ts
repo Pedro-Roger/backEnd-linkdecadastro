@@ -35,14 +35,16 @@ export class ShareController {
     }
   }
 
-  @Get('event/:eventId')
-  async getEventShare(@Param('eventId') eventId: string, @Res() res: Response) {
+  @Get('event/:eventIdOrSlug')
+  async getEventShare(@Param('eventIdOrSlug') eventIdOrSlug: string, @Res() res: Response) {
     try {
-      const event = await this.shareService.getEventPreviewData(eventId);
+      const event = await this.shareService.getEventPreviewData(eventIdOrSlug);
       
       const frontendUrl = process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
       const siteUrl = frontendUrl.replace(/\/$/, '');
-      const url = `${siteUrl}/register/${event.linkId}`;
+      const url = event.slug 
+        ? `${siteUrl}/e/${event.slug}`
+        : `${siteUrl}/register/${event.linkId}`;
 
       const html = this.shareService.generateOpenGraphHTML({
         title: event.title,
@@ -65,11 +67,8 @@ export class ShareController {
   @Get('enroll/:courseSlugOrId')
   async getEnrollShare(@Param('courseSlugOrId') courseSlugOrId: string, @Res() res: Response) {
     try {
-      console.log('[getEnrollShare] Recebido:', courseSlugOrId);
-      
       // Decodifica o parâmetro da URL
       const decodedParam = decodeURIComponent(courseSlugOrId);
-      console.log('[getEnrollShare] Parâmetro decodificado:', decodedParam);
       
       // Busca o curso por slug ou ID
       const course = await this.shareService.getCoursePreviewData(decodedParam);
@@ -79,8 +78,6 @@ export class ShareController {
       const url = course.slug 
         ? `${siteUrl}/enroll.html?course=${encodeURIComponent(course.slug)}`
         : `${siteUrl}/enroll.html?course=${course.id}`;
-
-      console.log('[getEnrollShare] URL gerada:', url);
 
       const html = this.shareService.generateOpenGraphHTML({
         title: course.title,
@@ -93,7 +90,6 @@ export class ShareController {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.send(html);
     } catch (error) {
-      console.error('[getEnrollShare] Erro:', error);
       if (error instanceof NotFoundException) {
         throw error;
       }

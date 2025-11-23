@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -149,8 +150,6 @@ export class AdminCoursesController {
     @Req() req: any & { res?: Response },
   ) {
     try {
-      console.log('[exportGet] Iniciando exportação:', { courseId, format, fields });
-      
       const fieldsArray =
         typeof fields === 'string'
           ? fields.split(',').map((f) => f.trim())
@@ -162,12 +161,6 @@ export class AdminCoursesController {
         format,
         fieldsArray,
       );
-
-      console.log('[exportGet] Exportação concluída:', { 
-        contentType: result.contentType, 
-        filename: result.filename,
-        bufferSize: result.buffer?.byteLength || Buffer.isBuffer(result.buffer) ? result.buffer.length : 0 
-      });
 
       const res = req.res as Response;
       res.setHeader('Content-Type', result.contentType);
@@ -183,12 +176,45 @@ export class AdminCoursesController {
       
       res.end(buffer);
     } catch (error) {
-      console.error('[exportGet] Erro ao exportar:', error);
       const res = req.res as Response;
       res.status(500).json({
         error: error instanceof Error ? error.message : 'Erro ao exportar dados',
       });
     }
+  }
+
+  // ========== GESTÃO DE TURMAS ==========
+
+  @Get(':courseId/classes')
+  async listCourseClasses(
+    @Param('courseId') courseId: string,
+    @Req() req: any,
+  ) {
+    return this.adminCoursesService.listCourseClasses(
+      courseId,
+      req.user.role,
+    );
+  }
+
+  @Post(':courseId/classes')
+  async createCourseClass(
+    @Param('courseId') courseId: string,
+    @Req() req: any,
+    @Body() body: { limit: number },
+  ) {
+    return this.adminCoursesService.createCourseClass(
+      courseId,
+      req.user.role,
+      body,
+    );
+  }
+
+  @Patch('classes/:classId/close')
+  async closeCourseClass(
+    @Param('classId') classId: string,
+    @Req() req: any,
+  ) {
+    return this.adminCoursesService.closeCourseClass(classId, req.user.role);
   }
 }
 
