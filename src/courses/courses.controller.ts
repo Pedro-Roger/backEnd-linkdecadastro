@@ -74,6 +74,7 @@ export class CoursesController {
       cpf?: string;
       birthDate?: string;
       participantType?: string;
+      schoolOrUniversity?: string;
       hectares?: any;
       waterArea?: any;
       ponds?: any;
@@ -110,6 +111,7 @@ export class CoursesController {
       cpf?: string;
       birthDate?: string;
       participantType?: string;
+      schoolOrUniversity?: string;
       hectares?: any;
       waterArea?: any;
       ponds?: any;

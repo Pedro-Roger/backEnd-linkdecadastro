@@ -28,6 +28,10 @@ export class UserController {
       name: string;
       bio?: string;
       avatar?: string;
+      schoolOrUniversity?: string;
+      hectares?: number;
+      waterArea?: number;
+      ponds?: number;
     },
   ) {
     return this.userService.updateProfile(req.user.id, body);

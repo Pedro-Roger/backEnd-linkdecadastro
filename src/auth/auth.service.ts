@@ -10,7 +10,10 @@ interface RegisterDto {
   cpf?: string;
   birthDate?: string;
   participantType?: 'ESTUDANTE' | 'PROFESSOR' | 'PESQUISADOR' | 'PRODUTOR';
+  schoolOrUniversity?: string;
   hectares?: number;
+  waterArea?: number;
+  ponds?: number;
   state?: string;
   city?: string;
   phone?: string;
@@ -48,9 +51,21 @@ export class AuthService {
         cpf: data.cpf || null,
         birthDate: data.birthDate ? new Date(data.birthDate) : null,
         participantType: data.participantType || null,
+        schoolOrUniversity:
+          data.participantType === 'PROFESSOR' && data.schoolOrUniversity
+            ? data.schoolOrUniversity
+            : null,
         hectares:
           data.participantType === 'PRODUTOR' && data.hectares
             ? data.hectares
+            : null,
+        waterArea:
+          data.participantType === 'PRODUTOR' && data.waterArea
+            ? data.waterArea
+            : null,
+        ponds:
+          data.participantType === 'PRODUTOR' && data.ponds
+            ? data.ponds
             : null,
         state: data.state || null,
         city: data.city || null,

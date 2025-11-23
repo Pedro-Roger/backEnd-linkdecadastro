@@ -26,7 +26,10 @@ export class AuthController {
       cpf?: string;
       birthDate?: string;
       participantType?: 'ESTUDANTE' | 'PROFESSOR' | 'PESQUISADOR' | 'PRODUTOR';
+      schoolOrUniversity?: string;
       hectares?: number;
+      waterArea?: number;
+      ponds?: number;
       state?: string;
       city?: string;
       phone?: string;

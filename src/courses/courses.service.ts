@@ -266,6 +266,7 @@ export class CoursesService {
       cpf?: string;
       birthDate?: string;
       participantType?: string;
+      schoolOrUniversity?: string;
       hectares?: any;
       waterArea?: any;
       ponds?: any;
@@ -278,6 +279,7 @@ export class CoursesService {
       cpf,
       birthDate,
       participantType,
+      schoolOrUniversity,
       hectares,
       waterArea,
       ponds,
@@ -457,6 +459,10 @@ export class CoursesService {
           cpf: cpf || null,
           birthDate: birthDate ? new Date(birthDate) : null,
           participantType: (participantType as any) || null,
+          schoolOrUniversity:
+            participantType === 'PROFESSOR' && schoolOrUniversity
+              ? schoolOrUniversity
+              : null,
           hectares: parsedHectares,
           waterArea: parsedWaterArea,
           ponds: parsedPonds,
@@ -566,6 +572,7 @@ export class CoursesService {
       cpf?: string;
       birthDate?: string;
       participantType?: string;
+      schoolOrUniversity?: string;
       hectares?: any;
       waterArea?: any;
       ponds?: any;
@@ -580,6 +587,7 @@ export class CoursesService {
       cpf,
       birthDate,
       participantType,
+      schoolOrUniversity,
       hectares,
       waterArea,
       ponds,
@@ -637,6 +645,10 @@ export class CoursesService {
             cpf: cpf || null,
             birthDate: birthDate ? new Date(birthDate) : null,
             participantType: participantType ? (participantType as ParticipantType) : null,
+            schoolOrUniversity:
+              participantType === 'PROFESSOR' && schoolOrUniversity
+                ? schoolOrUniversity
+                : null,
             hectares:
               participantType === 'PRODUTOR' && hectares
                 ? parseFloat(hectares)
@@ -689,6 +701,7 @@ export class CoursesService {
         cpf,
         birthDate,
         participantType,
+        schoolOrUniversity,
         hectares,
         waterArea,
         ponds,

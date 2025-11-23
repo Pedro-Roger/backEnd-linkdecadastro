@@ -19,7 +19,10 @@ export class UserService {
         state: true,
         city: true,
         participantType: true,
+        schoolOrUniversity: true,
         hectares: true,
+        waterArea: true,
+        ponds: true,
         cpf: true,
         birthDate: true,
         createdAt: true,
@@ -27,13 +30,54 @@ export class UserService {
     });
   }
 
-  async updateProfile(userId: string, data: { name: string; bio?: string; avatar?: string }) {
+  async updateProfile(
+    userId: string,
+    data: {
+      name: string;
+      bio?: string;
+      avatar?: string;
+      schoolOrUniversity?: string;
+      hectares?: number;
+      waterArea?: number;
+      ponds?: number;
+    }
+  ) {
+    // Buscar o tipo de participante atual do usuário
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { participantType: true },
+    });
+
     return this.prisma.user.update({
       where: { id: userId },
       data: {
         name: data.name,
         bio: data.bio,
         avatar: data.avatar || null,
+        schoolOrUniversity:
+          currentUser?.participantType === 'PROFESSOR' && data.schoolOrUniversity !== undefined
+            ? data.schoolOrUniversity
+            : currentUser?.participantType !== 'PROFESSOR'
+            ? null
+            : undefined,
+        hectares:
+          currentUser?.participantType === 'PRODUTOR' && data.hectares !== undefined
+            ? data.hectares
+            : currentUser?.participantType !== 'PRODUTOR'
+            ? null
+            : undefined,
+        waterArea:
+          currentUser?.participantType === 'PRODUTOR' && data.waterArea !== undefined
+            ? data.waterArea
+            : currentUser?.participantType !== 'PRODUTOR'
+            ? null
+            : undefined,
+        ponds:
+          currentUser?.participantType === 'PRODUTOR' && data.ponds !== undefined
+            ? data.ponds
+            : currentUser?.participantType !== 'PRODUTOR'
+            ? null
+            : undefined,
       },
       select: {
         id: true,
@@ -42,6 +86,10 @@ export class UserService {
         avatar: true,
         bio: true,
         role: true,
+        schoolOrUniversity: true,
+        hectares: true,
+        waterArea: true,
+        ponds: true,
       },
     });
   }

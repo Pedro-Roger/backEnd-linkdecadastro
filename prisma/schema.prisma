@@ -54,6 +54,7 @@ model User {
   cpf                   String?  // CPF
   birthDate             DateTime? // Data de nascimento
   participantType       ParticipantType? // Tipo de participante
+  schoolOrUniversity    String? // Escola ou universidade (apenas para professores)
   hectares              Float?  // Hectares (apenas para produtores)
   waterArea             Float?  // Hectares de lâmina d'água (apenas para produtores)
   ponds                 Int?    // Quantidade de viveiros (apenas para produtores)
@@ -236,6 +237,7 @@ model Enrollment {
   cpf           String?
   birthDate     DateTime?
   participantType ParticipantType?
+  schoolOrUniversity String? // Escola ou universidade (apenas para professores)
   hectares      Float?  // Apenas para produtores
   waterArea     Float?  // Hectares de lâmina d'água (apenas para produtores)
   ponds         Int?    // Quantidade de viveiros (apenas para produtores)
