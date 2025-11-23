@@ -131,7 +131,8 @@ export class AdminCoursesService {
       firstLesson,
     } = body;
 
-    if (slug && slug.trim()) {
+    // Validar slug apenas se fornecido e não vazio
+    if (slug && typeof slug === 'string' && slug.trim()) {
       const slugValue = slug.trim().toLowerCase();
       const existingCourse = await this.prisma.course.findFirst({
         where: { slug: slugValue },
@@ -172,8 +173,12 @@ export class AdminCoursesService {
       createdBy: userId,
     };
 
-    if (slug && slug.trim()) {
+    // Apenas adicionar slug se fornecido, não vazio e válido
+    if (slug && typeof slug === 'string' && slug.trim()) {
       courseData.slug = slug.trim().toLowerCase();
+    } else {
+      // Garantir que slug seja null (não undefined) para evitar problemas com unique constraint
+      courseData.slug = null;
     }
 
     type RegionQuotaInput = {
@@ -964,10 +969,9 @@ export class AdminCoursesService {
       doc.end();
 
       const pdfBuffer = await pdfPromise;
-      const arrayBuffer = new Uint8Array(pdfBuffer).buffer as ArrayBuffer;
 
       return {
-        buffer: arrayBuffer,
+        buffer: pdfBuffer,
         contentType: 'application/pdf',
         filename: `inscritos-${sanitizedTitle}.pdf`,
       };

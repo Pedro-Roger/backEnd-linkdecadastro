@@ -166,7 +166,7 @@ export class AdminCoursesController {
       console.log('[exportGet] Exportação concluída:', { 
         contentType: result.contentType, 
         filename: result.filename,
-        bufferSize: result.buffer?.byteLength || 0 
+        bufferSize: result.buffer?.byteLength || Buffer.isBuffer(result.buffer) ? result.buffer.length : 0 
       });
 
       const res = req.res as Response;
@@ -175,7 +175,13 @@ export class AdminCoursesController {
         'Content-Disposition',
         `attachment; filename="${result.filename}"`,
       );
-      res.end(result.buffer);
+      
+      // Garantir que o buffer é um Buffer do Node.js
+      const buffer = Buffer.isBuffer(result.buffer) 
+        ? result.buffer 
+        : Buffer.from(result.buffer);
+      
+      res.end(buffer);
     } catch (error) {
       console.error('[exportGet] Erro ao exportar:', error);
       const res = req.res as Response;
