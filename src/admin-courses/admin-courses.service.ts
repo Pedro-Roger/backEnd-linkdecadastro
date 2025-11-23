@@ -839,6 +839,29 @@ export class AdminCoursesService {
         label: 'Cidade',
         getter: (e: any) => e.city || e.user.city || '-',
       },
+      region: {
+        label: 'Região do Curso',
+        getter: (e: any) => {
+          if (e.regionQuota) {
+            return e.regionQuota.city 
+              ? `${e.regionQuota.state} - ${e.regionQuota.city}`
+              : e.regionQuota.state;
+          }
+          return '-';
+        },
+      },
+      eligible: {
+        label: 'Elegível para Região',
+        getter: (e: any) => {
+          if (e.status === 'PENDING_REGION') {
+            return 'Não';
+          }
+          if (e.regionQuota) {
+            return 'Sim';
+          }
+          return e.status === 'CONFIRMED' ? 'Sim' : 'Não';
+        },
+      },
       createdAt: {
         label: 'Data de Inscrição',
         getter: (e: any) =>
@@ -865,7 +888,10 @@ export class AdminCoursesService {
       'number',
       'name',
       'email',
+      'whatsapp',
       'status',
+      'region',
+      'eligible',
       'progress',
       'createdAt',
     ] as const;
