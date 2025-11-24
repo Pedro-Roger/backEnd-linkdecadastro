@@ -59,6 +59,137 @@ export class AdminCoursesService {
     });
   }
 
+  async listAllEnrollmentsForWhatsApp(
+    userRole?: string,
+    filters?: {
+      city?: string;
+      participantType?: string;
+    },
+  ) {
+    this.assertAdmin(userRole);
+
+    try {
+      // Buscar todos os enrollments
+      const enrollmentsData = await this.prisma.enrollment.findMany({
+        where: {
+          status: 'CONFIRMED', // Apenas confirmados
+        },
+        select: {
+          id: true,
+          userId: true,
+          whatsappNumber: true,
+          city: true,
+          state: true,
+          participantType: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      // Buscar usuários
+      const userIds = enrollmentsData.map((e) => e.userId).filter(Boolean);
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          city: true,
+          state: true,
+          participantType: true,
+        },
+      });
+
+      const userMap = new Map(users.map((u) => [u.id, u]));
+
+      // Combinar dados e aplicar filtros
+      let participants = enrollmentsData
+        .map((enrollment) => {
+          const user = userMap.get(enrollment.userId);
+          if (!user) {
+            return null;
+          }
+
+          // Usar telefone do enrollment, se não tiver, usar do user
+          const phone = enrollment.whatsappNumber || user.phone;
+          if (!phone) {
+            return null; // Pular se não tiver telefone
+          }
+
+          // Formatar telefone para WhatsApp (remover caracteres não numéricos e adicionar @c.us)
+          const cleanPhone = phone.replace(/\D/g, '');
+          if (cleanPhone.length < 10) {
+            return null; // Telefone inválido
+          }
+
+          // Usar cidade do enrollment ou do user
+          const city = enrollment.city || user.city;
+          const state = enrollment.state || user.state;
+          // Usar tipo do enrollment ou do user
+          const participantType = enrollment.participantType || user.participantType;
+
+          // Converter para formato WhatsApp (@c.us)
+          const whatsappId = `${cleanPhone}@c.us`;
+
+          return {
+            id_contato: whatsappId,
+            nome: user.name,
+            email: user.email,
+            telefone: phone,
+            cidade: city || '',
+            estado: state || '',
+            participante_tipo: participantType || '',
+            produtor: participantType === 'PRODUTOR',
+            professor: participantType === 'PROFESSOR',
+            estudante: participantType === 'ESTUDANTE',
+          };
+        })
+        .filter((p) => p !== null) as Array<{
+          id_contato: string;
+          nome: string;
+          email: string;
+          telefone: string;
+          cidade: string;
+          estado: string;
+          participante_tipo: string;
+          produtor: boolean;
+          professor: boolean;
+          estudante: boolean;
+        }>;
+
+      // Aplicar filtros se fornecidos
+      if (filters) {
+        if (filters.city) {
+          participants = participants.filter((p) =>
+            p.cidade?.toLowerCase().includes(filters.city!.toLowerCase()),
+          );
+        }
+        if (filters.participantType) {
+          const typeLower = filters.participantType.toLowerCase();
+          if (typeLower === 'produtor') {
+            participants = participants.filter((p) => p.produtor);
+          } else if (typeLower === 'professor') {
+            participants = participants.filter((p) => p.professor);
+          } else if (typeLower === 'estudante') {
+            participants = participants.filter((p) => p.estudante);
+          }
+        }
+      }
+
+      // Remover duplicatas (mesmo telefone)
+      const uniqueParticipants = Array.from(
+        new Map(participants.map((p) => [p.id_contato, p])).values(),
+      );
+
+      return {
+        total: uniqueParticipants.length,
+        participantes: uniqueParticipants,
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async getCourseById(courseId: string, userId: string, userRole?: string) {
     this.assertAdmin(userRole);
 

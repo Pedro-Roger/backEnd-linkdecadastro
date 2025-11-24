@@ -25,6 +25,18 @@ export class AdminCoursesController {
     return this.adminCoursesService.listCourses(req.user.role);
   }
 
+  @Get('enrollments/whatsapp')
+  async listEnrollmentsForWhatsApp(
+    @Req() req: any,
+    @Query('city') city?: string,
+    @Query('participantType') participantType?: string,
+  ) {
+    return this.adminCoursesService.listAllEnrollmentsForWhatsApp(req.user.role, {
+      city,
+      participantType,
+    });
+  }
+
   @Post()
   async createCourse(@Req() req: any, @Body() body: any) {
     return this.adminCoursesService.createCourse(

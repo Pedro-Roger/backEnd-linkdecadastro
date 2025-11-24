@@ -317,6 +317,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     mensagem: string,
     participantes: Array<{
       id_contato: string;
+      nome?: string;
       [key: string]: any;
     }>,
     filtros: {
@@ -348,10 +349,23 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       erro?: string;
     }> = [];
 
-    // Enviar mensagem para cada participante filtrado
+    // Enviar mensagem personalizada para cada participante filtrado
     for (const participante of participantesFiltrados) {
       try {
-        await this.client.sendMessage(participante.id_contato, mensagem);
+        // Personalizar mensagem com o nome do participante
+        let mensagemPersonalizada = mensagem;
+        
+        // Substituir {nome} pelo nome do participante
+        if (participante.nome) {
+          mensagemPersonalizada = mensagemPersonalizada.replace(/{nome}/g, participante.nome);
+        } else {
+          // Se não tiver nome, usar uma saudação genérica
+          mensagemPersonalizada = mensagemPersonalizada.replace(/{nome}/g, '');
+          mensagemPersonalizada = mensagemPersonalizada.replace(/Olá, !/g, 'Olá!');
+          mensagemPersonalizada = mensagemPersonalizada.replace(/Olá, /g, 'Olá! ');
+        }
+
+        await this.client.sendMessage(participante.id_contato, mensagemPersonalizada);
         resultados.push({
           contato: participante.id_contato,
           sucesso: true,
