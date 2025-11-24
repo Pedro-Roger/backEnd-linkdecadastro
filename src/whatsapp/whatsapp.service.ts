@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Client, LocalAuth } from 'whatsapp-web.js';
 import * as QRCode from 'qrcode';
+import * as qrcodeTerminal from 'qrcode-terminal';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 
@@ -34,9 +35,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
+    console.log('🚀 [WhatsApp] Iniciando serviço WhatsApp...');
     // Inicializar de forma assíncrona sem bloquear o servidor
     this.initializeClient().catch((error) => {
-      console.error('Erro ao inicializar WhatsApp (não crítico):', error);
+      console.error('❌ [WhatsApp] Erro ao inicializar WhatsApp (não crítico):', error);
       // Não lançar erro para não bloquear o servidor
     });
   }
@@ -57,35 +59,94 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const skipAutoInit = process.env.WHATSAPP_SKIP_AUTO_INIT === 'true';
     
     if (isProduction && skipAutoInit) {
-      console.log('WhatsApp: Inicialização automática desabilitada. Use o endpoint /api/whatsapp/status para inicializar manualmente.');
+      console.log('⚠️  [WhatsApp] Inicialização automática desabilitada. Use o endpoint /api/whatsapp/status para inicializar manualmente.');
       this.status = WhatsAppStatus.DISCONNECTED;
       return;
     }
 
     try {
+      console.log('📱 [WhatsApp] Criando cliente WhatsApp...');
       this.status = WhatsAppStatus.CONNECTING;
+
+      // Configuração otimizada para Render e outros ambientes serverless
+      const puppeteerOptions: any = {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu',
+          '--disable-web-security',
+          '--disable-features=IsolateOrigins,site-per-process',
+          '--disable-site-isolation-trials',
+          '--single-process',
+          '--disable-background-networking',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-breakpad',
+          '--disable-client-side-phishing-detection',
+          '--disable-component-update',
+          '--disable-default-apps',
+          '--disable-domain-reliability',
+          '--disable-extensions',
+          '--disable-features=AudioServiceOutOfProcess',
+          '--disable-hang-monitor',
+          '--disable-ipc-flooding-protection',
+          '--disable-notifications',
+          '--disable-offer-store-unmasked-wallet-cards',
+          '--disable-popup-blocking',
+          '--disable-print-preview',
+          '--disable-prompt-on-repost',
+          '--disable-renderer-backgrounding',
+          '--disable-setuid-sandbox',
+          '--disable-speech-api',
+          '--disable-sync',
+          '--disable-translate',
+          '--disable-windows10-custom-titlebar',
+          '--hide-scrollbars',
+          '--ignore-gpu-blacklist',
+          '--metrics-recording-only',
+          '--mute-audio',
+          '--no-default-browser-check',
+          '--no-pings',
+          '--no-sandbox',
+          '--password-store=basic',
+          '--use-gl=swiftshader',
+          '--use-mock-keychain',
+        ],
+      };
+
+      // Tentar usar executável do Chrome do sistema se disponível (Render)
+      const isRender = process.env.RENDER === 'true' || process.env.RENDER_SERVICE_ID;
+      if (isRender) {
+        // Render geralmente tem Chrome instalado em /usr/bin/google-chrome-stable
+        puppeteerOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
+      }
 
       this.client = new Client({
         authStrategy: new LocalAuth({
           dataPath: this.sessionPath,
         }),
-        puppeteer: {
-          headless: true,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-          ],
-        },
+        puppeteer: puppeteerOptions,
       });
 
       // Evento de QR Code
       this.client.on('qr', async (qr) => {
         this.status = WhatsAppStatus.QR_CODE;
+        console.log('\n📱 [WhatsApp] QR Code gerado! Escaneie com seu WhatsApp:');
+        console.log('═══════════════════════════════════════════════════════════');
+        
+        // Exibir QR Code no terminal
+        qrcodeTerminal.generate(qr, { small: true });
+        
+        console.log('═══════════════════════════════════════════════════════════');
+        console.log('💡 Abra o WhatsApp no seu celular e vá em:');
+        console.log('   Configurações > Aparelhos conectados > Conectar um aparelho');
+        console.log('   Escaneie o QR Code acima\n');
+        
         try {
           const base64 = await QRCode.toDataURL(qr);
           this.qrCodeData = {
@@ -93,32 +154,41 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             base64,
           };
         } catch (error) {
-          console.error('Erro ao gerar QR Code em base64:', error);
+          console.error('❌ [WhatsApp] Erro ao gerar QR Code em base64:', error);
         }
       });
 
       // Evento de autenticação
       this.client.on('authenticated', () => {
+        console.log('✅ [WhatsApp] Autenticado com sucesso!');
         this.status = WhatsAppStatus.AUTHENTICATED;
         this.qrCodeData = null;
       });
 
       // Evento de autenticação falhada
-      this.client.on('auth_failure', () => {
+      this.client.on('auth_failure', (msg) => {
+        console.error('❌ [WhatsApp] Falha na autenticação:', msg);
         this.status = WhatsAppStatus.AUTH_FAILURE;
         this.qrCodeData = null;
       });
 
       // Evento de ready
       this.client.on('ready', () => {
+        console.log('✅ [WhatsApp] Cliente WhatsApp está pronto e conectado!');
         this.status = WhatsAppStatus.READY;
         this.qrCodeData = null;
       });
 
       // Evento de desconexão
-      this.client.on('disconnected', () => {
+      this.client.on('disconnected', (reason) => {
+        console.log('⚠️  [WhatsApp] Cliente desconectado:', reason);
         this.status = WhatsAppStatus.DISCONNECTED;
         this.client = null;
+      });
+
+      // Evento de loading screen
+      this.client.on('loading_screen', (percent, message) => {
+        console.log(`⏳ [WhatsApp] Carregando: ${percent}% - ${message}`);
       });
 
       // Inicializar cliente
