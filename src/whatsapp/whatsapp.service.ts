@@ -119,11 +119,19 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         ],
       };
 
-      // Tentar usar executável do Chrome do sistema se disponível (Render)
-      const isRender = process.env.RENDER === 'true' || process.env.RENDER_SERVICE_ID;
-      if (isRender) {
-        // Render geralmente tem Chrome instalado em /usr/bin/google-chrome-stable
-        puppeteerOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
+      // Tentar usar executável do Chrome do sistema apenas se especificado via variável de ambiente
+      // Caso contrário, deixar o Puppeteer usar o Chrome que vem com ele ou baixar automaticamente
+      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        if (existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+          puppeteerOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+          console.log(`🔧 [WhatsApp] Usando Chrome customizado em: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
+        } else {
+          console.log(`⚠️  [WhatsApp] Caminho do Chrome especificado não encontrado: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
+          console.log('📦 [WhatsApp] Usando Chrome do Puppeteer (será baixado automaticamente se necessário)');
+        }
+      } else {
+        // Não definir executablePath, deixar Puppeteer usar o Chrome que vem com ele ou baixar
+        console.log('📦 [WhatsApp] Usando Chrome do Puppeteer (será baixado automaticamente se necessário)');
       }
 
       this.client = new Client({
