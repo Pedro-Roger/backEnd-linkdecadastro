@@ -191,12 +191,16 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         console.log(`⏳ [WhatsApp] Carregando: ${percent}% - ${message}`);
       });
 
-      // Inicializar cliente
-      await this.client.initialize();
+      // Inicializar cliente (não aguardar para não bloquear)
+      console.log('🔄 [WhatsApp] Inicializando cliente...');
+      this.client.initialize().catch((error) => {
+        console.error('❌ [WhatsApp] Erro ao inicializar cliente:', error);
+        this.status = WhatsAppStatus.DISCONNECTED;
+      });
     } catch (error) {
-      console.error('Erro ao inicializar cliente WhatsApp:', error);
+      console.error('❌ [WhatsApp] Erro ao criar cliente:', error);
       this.status = WhatsAppStatus.DISCONNECTED;
-      throw error;
+      // Não lançar erro para não bloquear o servidor
     }
   }
 
