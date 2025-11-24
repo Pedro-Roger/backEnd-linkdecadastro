@@ -69,7 +69,7 @@ export class AdminCoursesService {
     this.assertAdmin(userRole);
 
     try {
-      // Buscar todos os enrollments
+      // Buscar todos os enrollments (cursos)
       const enrollmentsData = await this.prisma.enrollment.findMany({
         where: {
           status: 'CONFIRMED', // Apenas confirmados
@@ -85,10 +85,31 @@ export class AdminCoursesService {
         orderBy: { createdAt: 'desc' },
       });
 
+      // Buscar todas as registrations (eventos)
+      const registrationsData = await this.prisma.registration.findMany({
+        where: {
+          status: 'CONFIRMED', // Apenas confirmados
+        },
+        select: {
+          id: true,
+          userId: true,
+          phone: true,
+          city: true,
+          state: true,
+          participantType: true,
+          name: true,
+          email: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
       // Buscar usuários
-      const userIds = enrollmentsData.map((e) => e.userId).filter(Boolean);
+      const userIdsFromEnrollments = enrollmentsData.map((e) => e.userId).filter((id): id is string => Boolean(id));
+      const userIdsFromRegistrations = registrationsData.map((r) => r.userId).filter((id): id is string => Boolean(id));
+      const allUserIds = [...new Set([...userIdsFromEnrollments, ...userIdsFromRegistrations])];
+      
       const users = await this.prisma.user.findMany({
-        where: { id: { in: userIds } },
+        where: { id: { in: allUserIds } },
         select: {
           id: true,
           name: true,
@@ -102,43 +123,38 @@ export class AdminCoursesService {
 
       const userMap = new Map(users.map((u) => [u.id, u]));
 
-      // Combinar dados e aplicar filtros
-      let participants = enrollmentsData
+      // Processar participantes de cursos (enrollments)
+      const participantsFromCourses = enrollmentsData
         .map((enrollment) => {
           const user = userMap.get(enrollment.userId);
-          if (!user) {
-            return null;
-          }
+          const name = user?.name || '';
+          const email = user?.email || '';
 
           // Usar telefone do enrollment, se não tiver, usar do user
-          const phone = enrollment.whatsappNumber || user.phone;
+          const phone = enrollment.whatsappNumber || user?.phone;
           if (!phone) {
             return null; // Pular se não tiver telefone
           }
 
-          // Formatar telefone para WhatsApp (remover caracteres não numéricos e adicionar @c.us)
+          // Formatar telefone para WhatsApp
           const cleanPhone = phone.replace(/\D/g, '');
           if (cleanPhone.length < 10) {
             return null; // Telefone inválido
           }
 
-          // Usar cidade do enrollment ou do user
-          const city = enrollment.city || user.city;
-          const state = enrollment.state || user.state;
-          // Usar tipo do enrollment ou do user
-          const participantType = enrollment.participantType || user.participantType;
-
-          // Converter para formato WhatsApp (@c.us)
+          const city = enrollment.city || user?.city || '';
+          const state = enrollment.state || user?.state || '';
+          const participantType = enrollment.participantType || user?.participantType || '';
           const whatsappId = `${cleanPhone}@c.us`;
 
           return {
             id_contato: whatsappId,
-            nome: user.name,
-            email: user.email,
+            nome: name,
+            email: email,
             telefone: phone,
-            cidade: city || '',
-            estado: state || '',
-            participante_tipo: participantType || '',
+            cidade: city,
+            estado: state,
+            participante_tipo: participantType,
             produtor: participantType === 'PRODUTOR',
             professor: participantType === 'PROFESSOR',
             estudante: participantType === 'ESTUDANTE',
@@ -156,6 +172,59 @@ export class AdminCoursesService {
           professor: boolean;
           estudante: boolean;
         }>;
+
+      // Processar participantes de eventos (registrations)
+      const participantsFromEvents = registrationsData
+        .map((registration) => {
+          const user = userMap.get(registration.userId || '');
+          const name = registration.name || user?.name || '';
+          const email = registration.email || user?.email || '';
+
+          // Usar telefone da registration, se não tiver, usar do user
+          const phone = registration.phone || user?.phone;
+          if (!phone) {
+            return null; // Pular se não tiver telefone
+          }
+
+          // Formatar telefone para WhatsApp
+          const cleanPhone = phone.replace(/\D/g, '');
+          if (cleanPhone.length < 10) {
+            return null; // Telefone inválido
+          }
+
+          const city = registration.city || user?.city || '';
+          const state = registration.state || user?.state || '';
+          const participantType = registration.participantType || user?.participantType || '';
+          const whatsappId = `${cleanPhone}@c.us`;
+
+          return {
+            id_contato: whatsappId,
+            nome: name,
+            email: email,
+            telefone: phone,
+            cidade: city,
+            estado: state,
+            participante_tipo: participantType,
+            produtor: participantType === 'PRODUTOR',
+            professor: participantType === 'PROFESSOR',
+            estudante: participantType === 'ESTUDANTE',
+          };
+        })
+        .filter((p) => p !== null) as Array<{
+          id_contato: string;
+          nome: string;
+          email: string;
+          telefone: string;
+          cidade: string;
+          estado: string;
+          participante_tipo: string;
+          produtor: boolean;
+          professor: boolean;
+          estudante: boolean;
+        }>;
+
+      // Combinar todos os participantes
+      let participants = [...participantsFromCourses, ...participantsFromEvents];
 
       // Aplicar filtros se fornecidos
       if (filters) {
