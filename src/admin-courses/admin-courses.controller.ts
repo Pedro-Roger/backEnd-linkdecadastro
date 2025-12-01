@@ -14,11 +14,13 @@ import {
 import { AdminCoursesService } from './admin-courses.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import type { Request, Response } from 'express';
+import { CreateCourseDto } from './dto/create-course.dto';
+import { UpdateCourseDto } from './dto/update-course.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('admin/courses')
 export class AdminCoursesController {
-  constructor(private readonly adminCoursesService: AdminCoursesService) {}
+  constructor(private readonly adminCoursesService: AdminCoursesService) { }
 
   @Get()
   async listCourses(@Req() req: any) {
@@ -29,16 +31,18 @@ export class AdminCoursesController {
   async listEnrollmentsForWhatsApp(
     @Req() req: any,
     @Query('city') city?: string,
+    @Query('state') state?: string,
     @Query('participantType') participantType?: string,
   ) {
     return this.adminCoursesService.listAllEnrollmentsForWhatsApp(req.user.role, {
       city,
+      state,
       participantType,
     });
   }
 
   @Post()
-  async createCourse(@Req() req: any, @Body() body: any) {
+  async createCourse(@Req() req: any, @Body() body: CreateCourseDto) {
     return this.adminCoursesService.createCourse(
       req.user.id,
       req.user.role,
@@ -69,7 +73,7 @@ export class AdminCoursesController {
   async updateCourse(
     @Param('courseId') courseId: string,
     @Req() req: any,
-    @Body() body: any,
+    @Body() body: UpdateCourseDto,
   ) {
     return this.adminCoursesService.updateCourse(
       courseId,
@@ -180,12 +184,12 @@ export class AdminCoursesController {
         'Content-Disposition',
         `attachment; filename="${result.filename}"`,
       );
-      
+
       // Garantir que o buffer é um Buffer do Node.js
-      const buffer = Buffer.isBuffer(result.buffer) 
-        ? result.buffer 
+      const buffer = Buffer.isBuffer(result.buffer)
+        ? result.buffer
         : Buffer.from(result.buffer);
-      
+
       res.end(buffer);
     } catch (error) {
       const res = req.res as Response;

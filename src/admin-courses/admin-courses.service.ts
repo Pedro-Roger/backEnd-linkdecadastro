@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EnrollmentStatus } from '@prisma/client';
+import { CreateCourseDto } from './dto/create-course.dto';
+import { UpdateCourseDto } from './dto/update-course.dto';
 
 // Enum de status das turmas
 const CourseClassStatus = {
@@ -21,7 +23,7 @@ import PDFDocument from 'pdfkit';
 
 @Injectable()
 export class AdminCoursesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   private assertAdmin(role?: string) {
     if (role !== 'ADMIN') {
@@ -63,6 +65,7 @@ export class AdminCoursesService {
     userRole?: string,
     filters?: {
       city?: string;
+      state?: string;
       participantType?: string;
     },
   ) {
@@ -107,7 +110,7 @@ export class AdminCoursesService {
       const userIdsFromEnrollments = enrollmentsData.map((e) => e.userId).filter((id): id is string => Boolean(id));
       const userIdsFromRegistrations = registrationsData.map((r) => r.userId).filter((id): id is string => Boolean(id));
       const allUserIds = [...new Set([...userIdsFromEnrollments, ...userIdsFromRegistrations])];
-      
+
       const users = await this.prisma.user.findMany({
         where: { id: { in: allUserIds } },
         select: {
@@ -233,6 +236,11 @@ export class AdminCoursesService {
             p.cidade?.toLowerCase().includes(filters.city!.toLowerCase()),
           );
         }
+        if (filters.state) {
+          participants = participants.filter((p) =>
+            p.estado?.toLowerCase().includes(filters.state!.toLowerCase()),
+          );
+        }
         if (filters.participantType) {
           const typeLower = filters.participantType.toLowerCase();
           if (typeLower === 'produtor') {
@@ -317,7 +325,7 @@ export class AdminCoursesService {
     return null;
   }
 
-  async createCourse(userId: string, userRole: string | undefined, body: any) {
+  async createCourse(userId: string, userRole: string | undefined, body: CreateCourseDto) {
     try {
       this.assertAdmin(userRole);
     } catch (error) {
@@ -343,9 +351,7 @@ export class AdminCoursesService {
       firstLesson,
     } = body;
 
-    if (!title || !title.trim()) {
-      throw new ForbiddenException('Título é obrigatório');
-    }
+    // Validation is now handled by DTO
 
     // Normalizar e validar slug - tratar strings vazias como null
     let normalizedSlug: string | null = null;
@@ -353,10 +359,8 @@ export class AdminCoursesService {
       const slugStr = String(slug).trim();
       if (slugStr.length > 0) {
         normalizedSlug = slugStr.toLowerCase();
-        // Validar formato do slug
-        if (!/^[a-z0-9-]+$/.test(normalizedSlug)) {
-          throw new ForbiddenException('URL personalizada deve conter apenas letras minúsculas, números e hífens');
-        }
+        // Regex validation handled by DTO
+
         // Verificar se já existe
         const existingCourse = await this.prisma.course.findFirst({
           where: { slug: normalizedSlug },
@@ -401,15 +405,8 @@ export class AdminCoursesService {
     // Usar o slug normalizado (já validado acima) - usar undefined em vez de null para evitar problemas
     courseData.slug = normalizedSlug || undefined;
 
-    type RegionQuotaInput = {
-      state: string;
-      city?: string | null;
-      limit: number;
-      waitlistLimit?: number | null;
-    };
-
     const normalizedRegionQuotas =
-      (regionQuotas as RegionQuotaInput[] | undefined)?.map((quota) => ({
+      regionQuotas?.map((quota) => ({
         state: quota.state.trim().toUpperCase(),
         city: quota.city ? quota.city.trim() : null,
         limit: quota.limit,
@@ -515,7 +512,7 @@ export class AdminCoursesService {
     courseId: string,
     userId: string,
     userRole: string | undefined,
-    body: any,
+    body: UpdateCourseDto,
   ) {
     this.assertAdmin(userRole);
 
@@ -556,22 +553,14 @@ export class AdminCoursesService {
       }
     }
 
-    type RegionQuotaUpdateInput = {
-      id?: string | null;
-      state: string;
-      city?: string | null;
-      limit: number;
-      waitlistLimit?: number | null;
-    };
-
     const normalizedRegionQuotas = regionQuotas
-      ? (regionQuotas as RegionQuotaUpdateInput[]).map((quota) => ({
-          id: quota.id ?? null,
-          state: quota.state.trim().toUpperCase(),
-          city: quota.city ? quota.city.trim() : null,
-          limit: quota.limit,
-          waitlistLimit: quota.waitlistLimit ?? 0,
-        }))
+      ? regionQuotas.map((quota) => ({
+        id: quota.id ?? null,
+        state: quota.state.trim().toUpperCase(),
+        city: quota.city ? quota.city.trim() : null,
+        limit: quota.limit,
+        waitlistLimit: quota.waitlistLimit ?? 0,
+      }))
       : null;
 
     const updateData: any = {};
@@ -874,7 +863,7 @@ export class AdminCoursesService {
 
   async listEnrollments(courseId: string, userRole?: string) {
     this.assertAdmin(userRole);
-    
+
     try {
       // Primeiro, busca os enrollments sem o include do user para evitar erro
       const enrollmentsData = await this.prisma.enrollment.findMany({
@@ -917,9 +906,9 @@ export class AdminCoursesService {
         .filter(Boolean);
       const courseClasses = courseClassIds.length > 0
         ? await (this.prisma as any).courseClass.findMany({
-            where: { id: { in: courseClassIds } },
-            select: { id: true, classNumber: true },
-          })
+          where: { id: { in: courseClassIds } },
+          select: { id: true, classNumber: true },
+        })
         : [];
       const classMap = new Map(courseClasses.map((c: any) => [c.id, c]));
 
@@ -978,7 +967,7 @@ export class AdminCoursesService {
     }
 
     let enrollments: any[] = [];
-    
+
     try {
       // Primeiro, busca os enrollments sem o include do user para evitar erro
       const enrollmentsData = await this.prisma.enrollment.findMany({
@@ -1076,7 +1065,7 @@ export class AdminCoursesService {
         label: 'Região do Curso',
         getter: (e: any) => {
           if (e.regionQuota) {
-            return e.regionQuota.city 
+            return e.regionQuota.city
               ? `${e.regionQuota.state} - ${e.regionQuota.city}`
               : e.regionQuota.state;
           }
@@ -1295,10 +1284,10 @@ export class AdminCoursesService {
       activeClassLimit: activeClass?.limit ?? null,
       activeClassCount: activeClass
         ? enrollments.filter(
-            (e: any) =>
-              e.courseClassId === activeClass.id &&
-              e.status === EnrollmentStatus.CONFIRMED,
-          ).length
+          (e: any) =>
+            e.courseClassId === activeClass.id &&
+            e.status === EnrollmentStatus.CONFIRMED,
+        ).length
         : null,
     };
   }
