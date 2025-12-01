@@ -16,6 +16,8 @@ exports.AdminCoursesController = void 0;
 const common_1 = require("@nestjs/common");
 const admin_courses_service_1 = require("./admin-courses.service");
 const jwt_guard_1 = require("../auth/jwt.guard");
+const create_course_dto_1 = require("./dto/create-course.dto");
+const update_course_dto_1 = require("./dto/update-course.dto");
 let AdminCoursesController = class AdminCoursesController {
     adminCoursesService;
     constructor(adminCoursesService) {
@@ -23,6 +25,13 @@ let AdminCoursesController = class AdminCoursesController {
     }
     async listCourses(req) {
         return this.adminCoursesService.listCourses(req.user.role);
+    }
+    async listEnrollmentsForWhatsApp(req, city, state, participantType) {
+        return this.adminCoursesService.listAllEnrollmentsForWhatsApp(req.user.role, {
+            city,
+            state,
+            participantType,
+        });
     }
     async createCourse(req, body) {
         return this.adminCoursesService.createCourse(req.user.id, req.user.role, body);
@@ -58,16 +67,10 @@ let AdminCoursesController = class AdminCoursesController {
     }
     async exportGet(courseId, format, fields, req) {
         try {
-            console.log('[exportGet] Iniciando exportação:', { courseId, format, fields });
             const fieldsArray = typeof fields === 'string'
                 ? fields.split(',').map((f) => f.trim())
                 : fields;
             const result = await this.adminCoursesService.exportEnrollments(courseId, req.user.role, format, fieldsArray);
-            console.log('[exportGet] Exportação concluída:', {
-                contentType: result.contentType,
-                filename: result.filename,
-                bufferSize: result.buffer?.byteLength || Buffer.isBuffer(result.buffer) ? result.buffer.length : 0
-            });
             const res = req.res;
             res.setHeader('Content-Type', result.contentType);
             res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
@@ -77,7 +80,6 @@ let AdminCoursesController = class AdminCoursesController {
             res.end(buffer);
         }
         catch (error) {
-            console.error('[exportGet] Erro ao exportar:', error);
             const res = req.res;
             res.status(500).json({
                 error: error instanceof Error ? error.message : 'Erro ao exportar dados',
@@ -103,11 +105,21 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AdminCoursesController.prototype, "listCourses", null);
 __decorate([
+    (0, common_1.Get)('enrollments/whatsapp'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Query)('city')),
+    __param(2, (0, common_1.Query)('state')),
+    __param(3, (0, common_1.Query)('participantType')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, String]),
+    __metadata("design:returntype", Promise)
+], AdminCoursesController.prototype, "listEnrollmentsForWhatsApp", null);
+__decorate([
     (0, common_1.Post)(),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, create_course_dto_1.CreateCourseDto]),
     __metadata("design:returntype", Promise)
 ], AdminCoursesController.prototype, "createCourse", null);
 __decorate([
@@ -132,7 +144,7 @@ __decorate([
     __param(1, (0, common_1.Req)()),
     __param(2, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:paramtypes", [String, Object, update_course_dto_1.UpdateCourseDto]),
     __metadata("design:returntype", Promise)
 ], AdminCoursesController.prototype, "updateCourse", null);
 __decorate([

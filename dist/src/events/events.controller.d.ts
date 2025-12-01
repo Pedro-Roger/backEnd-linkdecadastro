@@ -14,6 +14,7 @@ export declare class EventsController {
         description: string;
         bannerUrl: string | null;
         status: import("@prisma/client").$Enums.EventStatus;
+        slug: string | null;
         createdBy: string;
         linkId: string;
         maxRegistrations: number | null;
@@ -26,6 +27,7 @@ export declare class EventsController {
         description: string;
         bannerUrl: string | null;
         status: import("@prisma/client").$Enums.EventStatus;
+        slug: string | null;
         createdBy: string;
         linkId: string;
         maxRegistrations: number | null;
@@ -42,6 +44,24 @@ export declare class EventsController {
         description: string;
         bannerUrl: string | null;
         status: import("@prisma/client").$Enums.EventStatus;
+        slug: string | null;
+        createdBy: string;
+        linkId: string;
+        maxRegistrations: number | null;
+    }>;
+    getEventBySlug(slug: string): Promise<{
+        _count: {
+            registrations: number;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        title: string;
+        description: string;
+        bannerUrl: string | null;
+        status: import("@prisma/client").$Enums.EventStatus;
+        slug: string | null;
         createdBy: string;
         linkId: string;
         maxRegistrations: number | null;

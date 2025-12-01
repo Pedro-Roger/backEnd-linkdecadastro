@@ -45,12 +45,14 @@ let ShareController = class ShareController {
             throw new common_1.NotFoundException('Curso não encontrado');
         }
     }
-    async getEventShare(eventId, res) {
+    async getEventShare(eventIdOrSlug, res) {
         try {
-            const event = await this.shareService.getEventPreviewData(eventId);
+            const event = await this.shareService.getEventPreviewData(eventIdOrSlug);
             const frontendUrl = process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
             const siteUrl = frontendUrl.replace(/\/$/, '');
-            const url = `${siteUrl}/register/${event.linkId}`;
+            const url = event.slug
+                ? `${siteUrl}/e/${event.slug}`
+                : `${siteUrl}/register/${event.linkId}`;
             const html = this.shareService.generateOpenGraphHTML({
                 title: event.title,
                 description: event.description,
@@ -70,16 +72,13 @@ let ShareController = class ShareController {
     }
     async getEnrollShare(courseSlugOrId, res) {
         try {
-            console.log('[getEnrollShare] Recebido:', courseSlugOrId);
             const decodedParam = decodeURIComponent(courseSlugOrId);
-            console.log('[getEnrollShare] Parâmetro decodificado:', decodedParam);
             const course = await this.shareService.getCoursePreviewData(decodedParam);
             const frontendUrl = process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
             const siteUrl = frontendUrl.replace(/\/$/, '');
             const url = course.slug
                 ? `${siteUrl}/enroll.html?course=${encodeURIComponent(course.slug)}`
                 : `${siteUrl}/enroll.html?course=${course.id}`;
-            console.log('[getEnrollShare] URL gerada:', url);
             const html = this.shareService.generateOpenGraphHTML({
                 title: course.title,
                 description: course.description,
@@ -91,7 +90,6 @@ let ShareController = class ShareController {
             res.send(html);
         }
         catch (error) {
-            console.error('[getEnrollShare] Erro:', error);
             if (error instanceof common_1.NotFoundException) {
                 throw error;
             }
@@ -109,8 +107,8 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], ShareController.prototype, "getCourseShare", null);
 __decorate([
-    (0, common_1.Get)('event/:eventId'),
-    __param(0, (0, common_1.Param)('eventId')),
+    (0, common_1.Get)('event/:eventIdOrSlug'),
+    __param(0, (0, common_1.Param)('eventIdOrSlug')),
     __param(1, (0, common_1.Res)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String, Object]),

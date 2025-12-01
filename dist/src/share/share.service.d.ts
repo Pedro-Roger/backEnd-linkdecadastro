@@ -9,11 +9,12 @@ export declare class ShareService {
         bannerUrl: string | null;
         slug: string | null;
     }>;
-    getEventPreviewData(eventId: string): Promise<{
+    getEventPreviewData(eventIdOrSlug: string): Promise<{
         id: string;
         title: string;
         description: string;
         bannerUrl: string | null;
+        slug: string | null;
         linkId: string;
     }>;
     generateOpenGraphHTML(data: {

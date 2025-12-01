@@ -1,4 +1,5 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 import { Client, LocalAuth } from 'whatsapp-web.js';
 import * as QRCode from 'qrcode';
 import * as qrcodeTerminal from 'qrcode-terminal';
@@ -26,7 +27,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private qrCodeData: QRCodeData | null = null;
   private sessionPath: string;
 
-  constructor() {
+  constructor(private readonly prisma: PrismaService) {
     // Criar diretório para sessões se não existir
     this.sessionPath = join(process.cwd(), '.wwebjs_auth');
     if (!existsSync(this.sessionPath)) {
@@ -57,7 +58,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // Verificar se estamos em ambiente de produção (Render, etc) e pular inicialização automática
     const isProduction = process.env.NODE_ENV === 'production';
     const skipAutoInit = process.env.WHATSAPP_SKIP_AUTO_INIT === 'true';
-    
+
     if (isProduction && skipAutoInit) {
       console.log('⚠️  [WhatsApp] Inicialização automática desabilitada. Use o endpoint /api/whatsapp/status para inicializar manualmente.');
       this.status = WhatsAppStatus.DISCONNECTED;
@@ -146,15 +147,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         this.status = WhatsAppStatus.QR_CODE;
         console.log('\n📱 [WhatsApp] QR Code gerado! Escaneie com seu WhatsApp:');
         console.log('═══════════════════════════════════════════════════════════');
-        
+
         // Exibir QR Code no terminal
         qrcodeTerminal.generate(qr, { small: true });
-        
+
         console.log('═══════════════════════════════════════════════════════════');
         console.log('💡 Abra o WhatsApp no seu celular e vá em:');
         console.log('   Configurações > Aparelhos conectados > Conectar um aparelho');
         console.log('   Escaneie o QR Code acima\n');
-        
+
         try {
           const base64 = await QRCode.toDataURL(qr);
           this.qrCodeData = {
@@ -221,7 +222,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     if (!this.client) {
       const isProduction = process.env.NODE_ENV === 'production';
       const skipAutoInit = process.env.WHATSAPP_SKIP_AUTO_INIT === 'true';
-      
+
       if (!(isProduction && skipAutoInit)) {
         await this.initializeClient();
       }
@@ -242,7 +243,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     filters: {
       [key: string]: any;
     },
-  ): Array<{ id_contato: string; [key: string]: any }> {
+  ): Array<{ id_contato: string;[key: string]: any }> {
     if (!filters || Object.keys(filters).length === 0) {
       return participants;
     }
@@ -354,7 +355,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       try {
         // Personalizar mensagem com o nome do participante
         let mensagemPersonalizada = mensagem;
-        
+
         // Substituir {nome} pelo nome do participante
         if (participante.nome) {
           mensagemPersonalizada = mensagemPersonalizada.replace(/{nome}/g, participante.nome);
@@ -415,6 +416,48 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         erro: error.message || 'Erro desconhecido ao enviar mensagem',
       };
     }
+  }
+
+  async getParticipants() {
+    const users = await this.prisma.user.findMany({
+      where: {
+        phone: {
+          not: null,
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        role: true,
+        participantType: true,
+        state: true,
+        city: true,
+      },
+    });
+
+    return users
+      .filter((user) => user.phone && user.phone.length >= 10) // Filtro básico de telefone
+      .map((user) => {
+        // Formatar telefone para padrão WhatsApp (apenas números)
+        let phone = user.phone!.replace(/\D/g, '');
+
+        // Adicionar 55 se não tiver (assumindo Brasil)
+        if (phone.length <= 11) {
+          phone = '55' + phone;
+        }
+
+        return {
+          id_contato: `${phone}@c.us`,
+          nome: user.name,
+          email: user.email,
+          role: user.role,
+          tipo: user.participantType,
+          estado: user.state,
+          cidade: user.city,
+        };
+      });
   }
 
   async isReady(): Promise<boolean> {

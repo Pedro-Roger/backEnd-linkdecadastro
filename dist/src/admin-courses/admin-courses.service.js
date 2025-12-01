@@ -49,6 +49,10 @@ exports.AdminCoursesService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const client_1 = require("@prisma/client");
+const CourseClassStatus = {
+    ACTIVE: 'ACTIVE',
+    CLOSED: 'CLOSED',
+};
 const XLSX = __importStar(require("xlsx"));
 const pdfkit_1 = __importDefault(require("pdfkit"));
 let AdminCoursesService = class AdminCoursesService {
@@ -88,6 +92,148 @@ let AdminCoursesService = class AdminCoursesService {
             },
             orderBy: { createdAt: 'desc' },
         });
+    }
+    async listAllEnrollmentsForWhatsApp(userRole, filters) {
+        this.assertAdmin(userRole);
+        try {
+            const enrollmentsData = await this.prisma.enrollment.findMany({
+                where: {
+                    status: 'CONFIRMED',
+                },
+                select: {
+                    id: true,
+                    userId: true,
+                    whatsappNumber: true,
+                    city: true,
+                    state: true,
+                    participantType: true,
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+            const registrationsData = await this.prisma.registration.findMany({
+                where: {
+                    status: 'CONFIRMED',
+                },
+                select: {
+                    id: true,
+                    userId: true,
+                    phone: true,
+                    city: true,
+                    state: true,
+                    participantType: true,
+                    name: true,
+                    email: true,
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+            const userIdsFromEnrollments = enrollmentsData.map((e) => e.userId).filter((id) => Boolean(id));
+            const userIdsFromRegistrations = registrationsData.map((r) => r.userId).filter((id) => Boolean(id));
+            const allUserIds = [...new Set([...userIdsFromEnrollments, ...userIdsFromRegistrations])];
+            const users = await this.prisma.user.findMany({
+                where: { id: { in: allUserIds } },
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    phone: true,
+                    city: true,
+                    state: true,
+                    participantType: true,
+                },
+            });
+            const userMap = new Map(users.map((u) => [u.id, u]));
+            const participantsFromCourses = enrollmentsData
+                .map((enrollment) => {
+                const user = userMap.get(enrollment.userId);
+                const name = user?.name || '';
+                const email = user?.email || '';
+                const phone = enrollment.whatsappNumber || user?.phone;
+                if (!phone) {
+                    return null;
+                }
+                const cleanPhone = phone.replace(/\D/g, '');
+                if (cleanPhone.length < 10) {
+                    return null;
+                }
+                const city = enrollment.city || user?.city || '';
+                const state = enrollment.state || user?.state || '';
+                const participantType = enrollment.participantType || user?.participantType || '';
+                const whatsappId = `${cleanPhone}@c.us`;
+                return {
+                    id_contato: whatsappId,
+                    nome: name,
+                    email: email,
+                    telefone: phone,
+                    cidade: city,
+                    estado: state,
+                    participante_tipo: participantType,
+                    produtor: participantType === 'PRODUTOR',
+                    professor: participantType === 'PROFESSOR',
+                    estudante: participantType === 'ESTUDANTE',
+                };
+            })
+                .filter((p) => p !== null);
+            const participantsFromEvents = registrationsData
+                .map((registration) => {
+                const user = userMap.get(registration.userId || '');
+                const name = registration.name || user?.name || '';
+                const email = registration.email || user?.email || '';
+                const phone = registration.phone || user?.phone;
+                if (!phone) {
+                    return null;
+                }
+                const cleanPhone = phone.replace(/\D/g, '');
+                if (cleanPhone.length < 10) {
+                    return null;
+                }
+                const city = registration.city || user?.city || '';
+                const state = registration.state || user?.state || '';
+                const participantType = registration.participantType || user?.participantType || '';
+                const whatsappId = `${cleanPhone}@c.us`;
+                return {
+                    id_contato: whatsappId,
+                    nome: name,
+                    email: email,
+                    telefone: phone,
+                    cidade: city,
+                    estado: state,
+                    participante_tipo: participantType,
+                    produtor: participantType === 'PRODUTOR',
+                    professor: participantType === 'PROFESSOR',
+                    estudante: participantType === 'ESTUDANTE',
+                };
+            })
+                .filter((p) => p !== null);
+            let participants = [...participantsFromCourses, ...participantsFromEvents];
+            if (filters) {
+                if (filters.city) {
+                    participants = participants.filter((p) => p.cidade?.toLowerCase().includes(filters.city.toLowerCase()));
+                }
+                if (filters.state) {
+                    participants = participants.filter((p) => p.estado?.toLowerCase().includes(filters.state.toLowerCase()));
+                }
+                if (filters.participantType) {
+                    const typeLower = filters.participantType.toLowerCase();
+                    if (typeLower === 'produtor') {
+                        participants = participants.filter((p) => p.produtor);
+                    }
+                    else if (typeLower === 'professor') {
+                        participants = participants.filter((p) => p.professor);
+                    }
+                    else if (typeLower === 'estudante') {
+                        participants = participants.filter((p) => p.estudante);
+                    }
+                }
+            }
+            const uniqueParticipants = Array.from(new Map(participants.map((p) => [p.id_contato, p])).values());
+            return {
+                total: uniqueParticipants.length,
+                participantes: uniqueParticipants,
+            };
+        }
+        catch (error) {
+            throw error;
+        }
     }
     async getCourseById(courseId, userId, userRole) {
         this.assertAdmin(userRole);
@@ -139,16 +285,18 @@ let AdminCoursesService = class AdminCoursesService {
         return null;
     }
     async createCourse(userId, userRole, body) {
-        this.assertAdmin(userRole);
+        try {
+            this.assertAdmin(userRole);
+        }
+        catch (error) {
+            throw error;
+        }
         const { title, description, bannerUrl, status, type, maxEnrollments, waitlistEnabled, waitlistLimit, regionRestrictionEnabled, allowAllRegions, defaultRegionLimit, regionQuotas, startDate, endDate, slug, firstLesson, } = body;
         let normalizedSlug = null;
         if (slug !== undefined && slug !== null) {
             const slugStr = String(slug).trim();
             if (slugStr.length > 0) {
                 normalizedSlug = slugStr.toLowerCase();
-                if (!/^[a-z0-9-]+$/.test(normalizedSlug)) {
-                    throw new common_1.ForbiddenException('URL personalizada deve conter apenas letras minúsculas, números e hífens');
-                }
                 const existingCourse = await this.prisma.course.findFirst({
                     where: { slug: normalizedSlug },
                 });
@@ -185,70 +333,78 @@ let AdminCoursesService = class AdminCoursesService {
             endDate: endDate ? new Date(endDate) : null,
             createdBy: userId,
         };
-        courseData.slug = normalizedSlug;
+        courseData.slug = normalizedSlug || undefined;
         const normalizedRegionQuotas = regionQuotas?.map((quota) => ({
             state: quota.state.trim().toUpperCase(),
             city: quota.city ? quota.city.trim() : null,
             limit: quota.limit,
             waitlistLimit: quota.waitlistLimit ?? 0,
         })) ?? [];
-        const course = await this.prisma.$transaction(async (tx) => {
-            const newCourse = await tx.course.create({
-                data: courseData,
-            });
-            if (normalizedRegionQuotas.length > 0) {
-                await tx.courseRegionQuota.createMany({
-                    data: normalizedRegionQuotas.map((quota) => ({
-                        courseId: newCourse.id,
-                        state: quota.state,
-                        city: quota.city,
-                        limit: quota.limit,
-                        waitlistLimit: quota.waitlistLimit,
-                    })),
+        try {
+            const course = await this.prisma.$transaction(async (tx) => {
+                const newCourse = await tx.course.create({
+                    data: courseData,
                 });
-            }
-            if (firstLesson) {
-                const youtubeId = this.extractYouTubeId(firstLesson.videoUrl);
-                if (!youtubeId) {
-                    throw new Error('URL do YouTube inválida');
+                if (normalizedRegionQuotas.length > 0) {
+                    await tx.courseRegionQuota.createMany({
+                        data: normalizedRegionQuotas.map((quota) => ({
+                            courseId: newCourse.id,
+                            state: quota.state,
+                            city: quota.city,
+                            limit: quota.limit,
+                            waitlistLimit: quota.waitlistLimit,
+                        })),
+                    });
                 }
-                const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
-                await tx.lesson.create({
-                    data: {
-                        courseId: newCourse.id,
-                        title: firstLesson.title,
-                        description: firstLesson.description || null,
-                        videoUrl: `https://www.youtube.com/watch?v=${youtubeId}`,
-                        bannerUrl: thumbnailUrl,
-                        order: firstLesson.order || 0,
+                if (firstLesson) {
+                    const youtubeId = this.extractYouTubeId(firstLesson.videoUrl);
+                    if (!youtubeId) {
+                        throw new Error('URL do YouTube inválida');
+                    }
+                    const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
+                    await tx.lesson.create({
+                        data: {
+                            courseId: newCourse.id,
+                            title: firstLesson.title,
+                            description: firstLesson.description || null,
+                            videoUrl: `https://www.youtube.com/watch?v=${youtubeId}`,
+                            bannerUrl: thumbnailUrl,
+                            order: firstLesson.order || 0,
+                        },
+                    });
+                }
+                return tx.course.findUnique({
+                    where: { id: newCourse.id },
+                    include: {
+                        creator: {
+                            select: {
+                                name: true,
+                                email: true,
+                            },
+                        },
+                        lessons: {
+                            orderBy: { order: 'asc' },
+                        },
+                        regionQuotas: true,
+                        _count: {
+                            select: {
+                                enrollments: true,
+                            },
+                        },
                     },
                 });
-            }
-            return tx.course.findUnique({
-                where: { id: newCourse.id },
-                include: {
-                    creator: {
-                        select: {
-                            name: true,
-                            email: true,
-                        },
-                    },
-                    lessons: {
-                        orderBy: { order: 'asc' },
-                    },
-                    regionQuotas: true,
-                    _count: {
-                        select: {
-                            enrollments: true,
-                        },
-                    },
-                },
             });
-        });
-        if (!course) {
-            throw new Error('Falha ao carregar curso recém-criado');
+            if (!course) {
+                throw new common_1.NotFoundException('Falha ao carregar curso recém-criado');
+            }
+            return course;
         }
-        return course;
+        catch (error) {
+            if (error.code === 'P2002') {
+                throw new common_1.ForbiddenException('URL personalizada já está em uso');
+            }
+            throw error;
+        }
     }
     async deleteCourse(courseId, userId, userRole) {
         this.assertAdmin(userRole);
@@ -529,7 +685,6 @@ let AdminCoursesService = class AdminCoursesService {
     }
     async listEnrollments(courseId, userRole) {
         this.assertAdmin(userRole);
-        console.log('[listEnrollments] Buscando inscrições para o curso:', courseId);
         try {
             const enrollmentsData = await this.prisma.enrollment.findMany({
                 where: { courseId },
@@ -560,26 +715,39 @@ let AdminCoursesService = class AdminCoursesService {
                 },
             });
             const userMap = new Map(users.map((u) => [u.id, u]));
+            const courseClassIds = enrollmentsData
+                .map((e) => e.courseClassId)
+                .filter(Boolean);
+            const courseClasses = courseClassIds.length > 0
+                ? await this.prisma.courseClass.findMany({
+                    where: { id: { in: courseClassIds } },
+                    select: { id: true, classNumber: true },
+                })
+                : [];
+            const classMap = new Map(courseClasses.map((c) => [c.id, c]));
             const enrollments = enrollmentsData
                 .map((enrollment) => {
                 const user = userMap.get(enrollment.userId);
                 if (!user) {
                     return null;
                 }
+                let courseClassData = null;
+                if (enrollment.courseClassId) {
+                    const foundClass = classMap.get(enrollment.courseClassId);
+                    if (foundClass) {
+                        courseClassData = { classNumber: foundClass.classNumber };
+                    }
+                }
                 return {
                     ...enrollment,
                     user,
+                    courseClass: courseClassData,
                 };
             })
                 .filter((e) => e !== null);
-            console.log('[listEnrollments] Inscrições encontradas:', enrollments.length);
-            if (enrollmentsData.length !== enrollments.length) {
-                console.warn(`[listEnrollments] ${enrollmentsData.length - enrollments.length} inscrições sem usuário foram filtradas`);
-            }
             return enrollments;
         }
         catch (error) {
-            console.error('[listEnrollments] Erro ao buscar inscrições:', error);
             throw error;
         }
     }
@@ -591,7 +759,6 @@ let AdminCoursesService = class AdminCoursesService {
     };
     async exportEnrollments(courseId, userRole, formatParam, fieldsParam) {
         this.assertAdmin(userRole);
-        console.log('[exportEnrollments] Iniciando exportação:', { courseId, formatParam, fieldsParam });
         const course = await this.prisma.course.findUnique({
             where: { id: courseId },
             select: {
@@ -599,10 +766,8 @@ let AdminCoursesService = class AdminCoursesService {
             },
         });
         if (!course) {
-            console.error('[exportEnrollments] Curso não encontrado:', courseId);
             throw new common_1.NotFoundException('Curso não encontrado');
         }
-        console.log('[exportEnrollments] Curso encontrado:', course.title);
         let enrollments = [];
         try {
             const enrollmentsData = await this.prisma.enrollment.findMany({
@@ -643,13 +808,8 @@ let AdminCoursesService = class AdminCoursesService {
                 };
             })
                 .filter((e) => e !== null);
-            console.log('[exportEnrollments] Inscrições encontradas para exportação:', enrollments.length);
-            if (enrollmentsData.length !== enrollments.length) {
-                console.warn(`[exportEnrollments] ${enrollmentsData.length - enrollments.length} inscrições sem usuário foram filtradas`);
-            }
         }
         catch (error) {
-            console.error('[exportEnrollments] Erro ao buscar inscrições:', error);
             throw error;
         }
         const availableFields = {
@@ -847,10 +1007,6 @@ let AdminCoursesService = class AdminCoursesService {
         });
         const enrollments = await this.prisma.enrollment.findMany({
             where: { courseId },
-            select: {
-                courseClassId: true,
-                status: true,
-            },
         });
         const classesWithCounts = classes.map((classItem) => {
             const confirmedCount = enrollments.filter((e) => e.courseClassId === classItem.id &&
@@ -866,7 +1022,7 @@ let AdminCoursesService = class AdminCoursesService {
                 totalEnrollments: classItem._count.enrollments,
             };
         });
-        const activeClass = classes.find((c) => c.status === client_1.CourseClassStatus.ACTIVE);
+        const activeClass = classes.find((c) => c.status === CourseClassStatus.ACTIVE);
         return {
             course: {
                 id: course.id,
@@ -896,14 +1052,56 @@ let AdminCoursesService = class AdminCoursesService {
         });
         const nextClassNumber = lastClass ? lastClass.classNumber + 1 : 1;
         const limit = body.limit || course.maxEnrollments || 50;
-        return this.prisma.courseClass.create({
-            data: {
-                courseId,
-                classNumber: nextClassNumber,
-                limit,
-                currentCount: 0,
-                status: client_1.CourseClassStatus.ACTIVE,
-            },
+        return await this.prisma.$transaction(async (tx) => {
+            const newClass = await tx.courseClass.create({
+                data: {
+                    courseId,
+                    classNumber: nextClassNumber,
+                    limit,
+                    currentCount: 0,
+                    status: CourseClassStatus.ACTIVE,
+                },
+            });
+            const waitlistEnrollments = await tx.enrollment.findMany({
+                where: {
+                    courseId,
+                    status: client_1.EnrollmentStatus.WAITLIST,
+                },
+                orderBy: {
+                    waitlistPosition: 'asc',
+                },
+                take: limit,
+            });
+            let allocatedCount = 0;
+            for (const enrollment of waitlistEnrollments) {
+                if (allocatedCount >= limit)
+                    break;
+                await tx.enrollment.update({
+                    where: { id: enrollment.id },
+                    data: {
+                        status: client_1.EnrollmentStatus.CONFIRMED,
+                        courseClassId: newClass.id,
+                        waitlistPosition: null,
+                    },
+                });
+                allocatedCount++;
+            }
+            await tx.courseClass.update({
+                where: { id: newClass.id },
+                data: {
+                    currentCount: allocatedCount,
+                },
+            });
+            return await tx.courseClass.findUnique({
+                where: { id: newClass.id },
+                include: {
+                    _count: {
+                        select: {
+                            enrollments: true,
+                        },
+                    },
+                },
+            });
         });
     }
     async closeCourseClass(classId, userRole) {
@@ -914,13 +1112,13 @@ let AdminCoursesService = class AdminCoursesService {
         if (!classItem) {
             throw new common_1.NotFoundException('Turma não encontrada');
         }
-        if (classItem.status === client_1.CourseClassStatus.CLOSED) {
+        if (classItem.status === CourseClassStatus.CLOSED) {
             throw new common_1.ForbiddenException('Turma já está encerrada');
         }
         return this.prisma.courseClass.update({
             where: { id: classId },
             data: {
-                status: client_1.CourseClassStatus.CLOSED,
+                status: CourseClassStatus.CLOSED,
                 closedAt: new Date(),
             },
         });

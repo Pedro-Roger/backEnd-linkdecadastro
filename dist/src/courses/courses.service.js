@@ -419,10 +419,70 @@ let CoursesService = class CoursesService {
             const parsedPonds = participantType === 'PRODUTOR' && ponds
                 ? parseInt(ponds)
                 : null;
+            let activeCourseClass = null;
+            if (enrollmentStatus === client_1.EnrollmentStatus.CONFIRMED) {
+                activeCourseClass = await tx.courseClass.findFirst({
+                    where: {
+                        courseId,
+                        status: 'ACTIVE',
+                    },
+                    orderBy: {
+                        classNumber: 'desc',
+                    },
+                });
+                if (!activeCourseClass) {
+                    const lastClass = await tx.courseClass.findFirst({
+                        where: { courseId },
+                        orderBy: { classNumber: 'desc' },
+                    });
+                    const nextClassNumber = lastClass ? lastClass.classNumber + 1 : 1;
+                    const classLimit = course.maxEnrollments || 50;
+                    activeCourseClass = await tx.courseClass.create({
+                        data: {
+                            courseId,
+                            classNumber: nextClassNumber,
+                            limit: classLimit,
+                            currentCount: 0,
+                            status: 'ACTIVE',
+                        },
+                    });
+                }
+                if (activeCourseClass.currentCount >= activeCourseClass.limit) {
+                    await tx.courseClass.update({
+                        where: { id: activeCourseClass.id },
+                        data: {
+                            status: 'CLOSED',
+                            closedAt: new Date(),
+                        },
+                    });
+                    const lastClass = await tx.courseClass.findFirst({
+                        where: { courseId },
+                        orderBy: { classNumber: 'desc' },
+                    });
+                    const nextClassNumber = lastClass ? lastClass.classNumber + 1 : 1;
+                    const classLimit = course.maxEnrollments || 50;
+                    activeCourseClass = await tx.courseClass.create({
+                        data: {
+                            courseId,
+                            classNumber: nextClassNumber,
+                            limit: classLimit,
+                            currentCount: 0,
+                            status: 'ACTIVE',
+                        },
+                    });
+                }
+                await tx.courseClass.update({
+                    where: { id: activeCourseClass.id },
+                    data: {
+                        currentCount: { increment: 1 },
+                    },
+                });
+            }
             const enrollment = await tx.enrollment.create({
                 data: {
                     userId,
                     courseId,
+                    courseClassId: activeCourseClass?.id || null,
                     progress: 0,
                     cpf: cpf || null,
                     birthDate: birthDate ? new Date(birthDate) : null,
@@ -523,13 +583,7 @@ let CoursesService = class CoursesService {
     }
     async enrollInCourseByEmail(courseId, body) {
         const { email, name, cpf, birthDate, participantType, schoolOrUniversity, hectares, waterArea, ponds, state, city, whatsappNumber, } = body;
-        console.log('[enrollInCourseByEmail] Iniciando inscrição:', {
-            courseId,
-            email,
-            name,
-        });
         if (!email || typeof email !== 'string') {
-            console.error('[enrollInCourseByEmail] Email inválido:', email);
             return {
                 error: {
                     message: 'Email é obrigatório',
@@ -540,10 +594,8 @@ let CoursesService = class CoursesService {
         let user = await this.prisma.user.findUnique({
             where: { email },
         });
-        console.log('[enrollInCourseByEmail] Usuário encontrado:', user ? user.id : 'não encontrado');
         if (!user) {
             if (!name) {
-                console.error('[enrollInCourseByEmail] Nome obrigatório para criar conta');
                 return {
                     error: {
                         message: 'Nome é obrigatório para criar nova conta.',
@@ -579,10 +631,8 @@ let CoursesService = class CoursesService {
                         phone: whatsappNumber || null,
                     },
                 });
-                console.log('[enrollInCourseByEmail] Usuário criado:', user.id);
             }
             catch (error) {
-                console.error('[enrollInCourseByEmail] Erro ao criar usuário:', error);
                 return {
                     error: {
                         message: 'Erro ao criar conta do usuário',
@@ -595,7 +645,6 @@ let CoursesService = class CoursesService {
             where: { id: courseId },
         });
         if (!course) {
-            console.error('[enrollInCourseByEmail] Curso não encontrado:', courseId);
             return {
                 error: {
                     message: 'Curso não encontrado',
@@ -603,7 +652,6 @@ let CoursesService = class CoursesService {
                 },
             };
         }
-        console.log('[enrollInCourseByEmail] Curso encontrado:', course.title);
         try {
             const result = await this.enrollInCourse(user.id, courseId, {
                 cpf,
@@ -617,14 +665,9 @@ let CoursesService = class CoursesService {
                 city,
                 whatsappNumber,
             });
-            console.log('[enrollInCourseByEmail] Resultado da inscrição:', {
-                hasError: 'error' in result,
-                hasEnrollment: result && 'enrollment' in result,
-            });
             return result;
         }
         catch (error) {
-            console.error('[enrollInCourseByEmail] Erro ao fazer inscrição:', error);
             return {
                 error: {
                     message: error instanceof Error ? error.message : 'Erro ao processar inscrição',

@@ -40,7 +40,7 @@ interface EnviarMensagemGrupoDto {
 @UseGuards(JwtAuthGuard)
 @Controller('api/whatsapp')
 export class WhatsAppController {
-  constructor(private readonly whatsappService: WhatsAppService) {}
+  constructor(private readonly whatsappService: WhatsAppService) { }
 
   @Get('status')
   async getStatus() {
@@ -55,6 +55,27 @@ export class WhatsAppController {
         {
           success: false,
           message: 'Erro ao obter status do WhatsApp',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('participantes')
+  async getParticipantes() {
+    try {
+      const participantes = await this.whatsappService.getParticipants();
+      return {
+        success: true,
+        participantes,
+        total: participantes.length,
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Erro ao obter participantes',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

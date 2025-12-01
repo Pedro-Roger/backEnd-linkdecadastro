@@ -30,6 +30,9 @@ let EventsController = class EventsController {
     async getEventByLink(linkId) {
         return this.eventsService.getEventByLink(linkId);
     }
+    async getEventBySlug(slug) {
+        return this.eventsService.getEventBySlug(slug);
+    }
 };
 exports.EventsController = EventsController;
 __decorate([
@@ -56,6 +59,13 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], EventsController.prototype, "getEventByLink", null);
+__decorate([
+    (0, common_1.Get)('slug/:slug'),
+    __param(0, (0, common_1.Param)('slug')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], EventsController.prototype, "getEventBySlug", null);
 exports.EventsController = EventsController = __decorate([
     (0, common_1.Controller)('events'),
     __metadata("design:paramtypes", [events_service_1.EventsService])

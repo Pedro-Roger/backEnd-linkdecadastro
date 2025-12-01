@@ -11,6 +11,7 @@ export declare class AdminEventsController {
         description: string;
         bannerUrl: string | null;
         status: import("@prisma/client").$Enums.EventStatus;
+        slug: string | null;
         createdBy: string;
         linkId: string;
         maxRegistrations: number | null;

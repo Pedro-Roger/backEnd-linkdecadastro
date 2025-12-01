@@ -1,5 +1,7 @@
 import { AdminCoursesService } from './admin-courses.service';
 import type { Response } from 'express';
+import { CreateCourseDto } from './dto/create-course.dto';
+import { UpdateCourseDto } from './dto/update-course.dto';
 export declare class AdminCoursesController {
     private readonly adminCoursesService;
     constructor(adminCoursesService: AdminCoursesService);
@@ -48,7 +50,22 @@ export declare class AdminCoursesController {
         slug: string | null;
         createdBy: string;
     })[]>;
-    createCourse(req: any, body: any): Promise<{
+    listEnrollmentsForWhatsApp(req: any, city?: string, state?: string, participantType?: string): Promise<{
+        total: number;
+        participantes: {
+            id_contato: string;
+            nome: string;
+            email: string;
+            telefone: string;
+            cidade: string;
+            estado: string;
+            participante_tipo: string;
+            produtor: boolean;
+            professor: boolean;
+            estudante: boolean;
+        }[];
+    }>;
+    createCourse(req: any, body: CreateCourseDto): Promise<{
         creator: {
             email: string;
             name: string;
@@ -152,7 +169,7 @@ export declare class AdminCoursesController {
     deleteCourse(courseId: string, req: any): Promise<{
         message: string;
     }>;
-    updateCourse(courseId: string, req: any, body: any): Promise<{
+    updateCourse(courseId: string, req: any, body: UpdateCourseDto): Promise<{
         creator: {
             email: string;
             name: string;
@@ -276,42 +293,13 @@ export declare class AdminCoursesController {
             title: string;
             maxEnrollments: number | null;
         };
-        classes: {
-            id: string;
-            classNumber: number;
-            limit: number;
-            currentCount: number;
-            status: import("@prisma/client").$Enums.CourseClassStatus;
-            createdAt: Date;
-            closedAt: Date | null;
-            totalEnrollments: number;
-        }[];
-        activeClassNumber: number | null;
-        activeClassLimit: number | null;
+        classes: any;
+        activeClassNumber: any;
+        activeClassLimit: any;
         activeClassCount: number | null;
     }>;
     createCourseClass(courseId: string, req: any, body: {
         limit: number;
-    }): Promise<{
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        status: import("@prisma/client").$Enums.CourseClassStatus;
-        courseId: string;
-        limit: number;
-        currentCount: number;
-        classNumber: number;
-        closedAt: Date | null;
-    }>;
-    closeCourseClass(classId: string, req: any): Promise<{
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        status: import("@prisma/client").$Enums.CourseClassStatus;
-        courseId: string;
-        limit: number;
-        currentCount: number;
-        classNumber: number;
-        closedAt: Date | null;
-    }>;
+    }): Promise<any>;
+    closeCourseClass(classId: string, req: any): Promise<any>;
 }

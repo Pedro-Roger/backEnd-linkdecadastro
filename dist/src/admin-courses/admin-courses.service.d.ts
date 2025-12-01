@@ -1,4 +1,6 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateCourseDto } from './dto/create-course.dto';
+import { UpdateCourseDto } from './dto/update-course.dto';
 export declare class AdminCoursesService {
     private readonly prisma;
     constructor(prisma: PrismaService);
@@ -48,6 +50,25 @@ export declare class AdminCoursesService {
         slug: string | null;
         createdBy: string;
     })[]>;
+    listAllEnrollmentsForWhatsApp(userRole?: string, filters?: {
+        city?: string;
+        state?: string;
+        participantType?: string;
+    }): Promise<{
+        total: number;
+        participantes: {
+            id_contato: string;
+            nome: string;
+            email: string;
+            telefone: string;
+            cidade: string;
+            estado: string;
+            participante_tipo: string;
+            produtor: boolean;
+            professor: boolean;
+            estudante: boolean;
+        }[];
+    }>;
     getCourseById(courseId: string, userId: string, userRole?: string): Promise<{
         creator: {
             email: string;
@@ -98,7 +119,7 @@ export declare class AdminCoursesService {
         createdBy: string;
     }>;
     private extractYouTubeId;
-    createCourse(userId: string, userRole: string | undefined, body: any): Promise<{
+    createCourse(userId: string, userRole: string | undefined, body: CreateCourseDto): Promise<{
         creator: {
             email: string;
             name: string;
@@ -151,7 +172,7 @@ export declare class AdminCoursesService {
         createdBy: string;
     }>;
     deleteCourse(courseId: string, userId: string, userRole?: string): Promise<void>;
-    updateCourse(courseId: string, userId: string, userRole: string | undefined, body: any): Promise<{
+    updateCourse(courseId: string, userId: string, userRole: string | undefined, body: UpdateCourseDto): Promise<{
         creator: {
             email: string;
             name: string;
@@ -276,42 +297,13 @@ export declare class AdminCoursesService {
             title: string;
             maxEnrollments: number | null;
         };
-        classes: {
-            id: string;
-            classNumber: number;
-            limit: number;
-            currentCount: number;
-            status: import("@prisma/client").$Enums.CourseClassStatus;
-            createdAt: Date;
-            closedAt: Date | null;
-            totalEnrollments: number;
-        }[];
-        activeClassNumber: number | null;
-        activeClassLimit: number | null;
+        classes: any;
+        activeClassNumber: any;
+        activeClassLimit: any;
         activeClassCount: number | null;
     }>;
     createCourseClass(courseId: string, userRole: string | undefined, body: {
         limit: number;
-    }): Promise<{
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        status: import("@prisma/client").$Enums.CourseClassStatus;
-        courseId: string;
-        limit: number;
-        currentCount: number;
-        classNumber: number;
-        closedAt: Date | null;
-    }>;
-    closeCourseClass(classId: string, userRole: string | undefined): Promise<{
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        status: import("@prisma/client").$Enums.CourseClassStatus;
-        courseId: string;
-        limit: number;
-        currentCount: number;
-        classNumber: number;
-        closedAt: Date | null;
-    }>;
+    }): Promise<any>;
+    closeCourseClass(classId: string, userRole: string | undefined): Promise<any>;
 }

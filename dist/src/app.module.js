@@ -23,6 +23,7 @@ const admin_courses_module_1 = require("./admin-courses/admin-courses.module");
 const admin_events_module_1 = require("./admin-events/admin-events.module");
 const admin_upload_module_1 = require("./admin-upload/admin-upload.module");
 const share_module_1 = require("./share/share.module");
+const whatsapp_module_1 = require("./whatsapp/whatsapp.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -44,6 +45,7 @@ exports.AppModule = AppModule = __decorate([
             admin_events_module_1.AdminEventsModule,
             admin_upload_module_1.AdminUploadModule,
             share_module_1.ShareModule,
+            whatsapp_module_1.WhatsAppModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],
