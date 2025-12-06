@@ -443,12 +443,19 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         // Formatar telefone para padrão WhatsApp (apenas números)
         let phone = user.phone!.replace(/\D/g, '');
 
+        // Remover zero à esquerda se houver (ex: 011999999999 -> 11999999999)
+        if (phone.startsWith('0') && phone.length > 11) {
+          phone = phone.substring(1);
+        }
+
         // Adicionar 55 se não tiver (assumindo Brasil)
-        if (phone.length <= 11) {
+        // DDD (2) + Número (8 ou 9) = 10 ou 11 dígitos
+        if (phone.length >= 10 && phone.length <= 11) {
           phone = '55' + phone;
         }
 
         return {
+          id: user.id,
           id_contato: `${phone}@c.us`,
           nome: user.name,
           email: user.email,
