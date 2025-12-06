@@ -54,10 +54,13 @@ async function bootstrap() {
     ].filter(Boolean);
     app.enableCors({
         origin: (origin, callback) => {
-            if (!origin || allowedOrigins.includes(origin)) {
+            if (!origin ||
+                allowedOrigins.includes(origin) ||
+                origin.endsWith('linkdecadastro.com.br')) {
                 callback(null, true);
             }
             else {
+                console.error(`❌ [CORS] Origem bloqueada: ${origin}`);
                 callback(new Error('Not allowed by CORS'));
             }
         },

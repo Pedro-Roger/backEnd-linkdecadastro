@@ -55,6 +55,7 @@ export declare class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         erro?: string;
     }>;
     getParticipants(): Promise<{
+        id: string;
         id_contato: string;
         nome: string;
         email: string;

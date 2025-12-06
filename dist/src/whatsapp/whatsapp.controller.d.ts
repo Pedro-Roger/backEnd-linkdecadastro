@@ -35,6 +35,7 @@ export declare class WhatsAppController {
     getParticipantes(): Promise<{
         success: boolean;
         participantes: {
+            id: string;
             id_contato: string;
             nome: string;
             email: string;

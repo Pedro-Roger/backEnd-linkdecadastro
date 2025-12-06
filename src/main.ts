@@ -27,9 +27,15 @@ async function bootstrap() {
   app.enableCors({
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       // Permite requisições sem origem (mobile apps, Postman, etc) em desenvolvimento
-      if (!origin || allowedOrigins.includes(origin)) {
+      // Também checka se a origem termina com linkdecadastro.com.br para aceitar subdomínios
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        origin.endsWith('linkdecadastro.com.br')
+      ) {
         callback(null, true);
       } else {
+        console.error(`❌ [CORS] Origem bloqueada: ${origin}`);
         callback(new Error('Not allowed by CORS'));
       }
     },

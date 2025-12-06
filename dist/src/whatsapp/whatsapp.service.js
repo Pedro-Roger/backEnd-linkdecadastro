@@ -237,11 +237,45 @@ let WhatsAppService = class WhatsAppService {
         if (!filters || Object.keys(filters).length === 0) {
             return participants;
         }
+        const keyMap = {
+            'state': 'estado',
+            'city': 'cidade',
+            'participantType': 'tipo',
+            'type': 'tipo',
+            'role': 'role',
+            'estado': 'state',
+            'cidade': 'city',
+            'tipo': 'participantType',
+        };
         return participants.filter((participant) => {
             return Object.keys(filters).every((key) => {
                 const filterValue = filters[key];
-                const participantValue = participant[key];
-                return participantValue === filterValue;
+                if (filterValue === null || filterValue === undefined || filterValue === '' || filterValue === 'Todos') {
+                    return true;
+                }
+                let participantValue = participant[key];
+                if (participantValue === undefined && keyMap[key]) {
+                    participantValue = participant[keyMap[key]];
+                }
+                if (participantValue === undefined) {
+                    const reverseKey = Object.keys(keyMap).find(k => keyMap[k] === key);
+                    if (reverseKey && participant[reverseKey] !== undefined) {
+                        participantValue = participant[reverseKey];
+                    }
+                }
+                if (participantValue === undefined) {
+                    console.log(`[WhatsApp Filter] Chave '${key}' não encontrada no participante.`);
+                    return false;
+                }
+                if (typeof filterValue === 'boolean' || typeof filterValue === 'number') {
+                    return participantValue === filterValue;
+                }
+                if (typeof filterValue === 'string') {
+                    const pValStr = String(participantValue).toLowerCase().trim();
+                    const fValStr = filterValue.toLowerCase().trim();
+                    return pValStr === fValStr || pValStr.includes(fValStr);
+                }
+                return participantValue == filterValue;
             });
         });
     }
@@ -359,10 +393,14 @@ let WhatsAppService = class WhatsAppService {
             .filter((user) => user.phone && user.phone.length >= 10)
             .map((user) => {
             let phone = user.phone.replace(/\D/g, '');
-            if (phone.length <= 11) {
+            if (phone.startsWith('0') && phone.length > 11) {
+                phone = phone.substring(1);
+            }
+            if (phone.length >= 10 && phone.length <= 11) {
                 phone = '55' + phone;
             }
             return {
+                id: user.id,
                 id_contato: `${phone}@c.us`,
                 nome: user.name,
                 email: user.email,

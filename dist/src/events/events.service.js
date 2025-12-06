@@ -37,10 +37,11 @@ let EventsService = class EventsService {
         const { title, description, bannerUrl, maxRegistrations, slug } = body;
         let normalizedSlug = null;
         if (slug && typeof slug === 'string' && slug.trim()) {
-            normalizedSlug = slug.trim().toLowerCase();
-            if (!/^[a-z0-9-]+$/.test(normalizedSlug)) {
-                throw new common_1.ForbiddenException('Slug inválido. Use apenas letras minúsculas, números e hífens.');
-            }
+            normalizedSlug = slug
+                .trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
         }
         else {
             normalizedSlug = null;

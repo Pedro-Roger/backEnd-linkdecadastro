@@ -248,13 +248,69 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       return participants;
     }
 
+    // Mapa de correspondência de chaves para lidar com variações (frontend vs backend)
+    const keyMap: { [key: string]: string } = {
+      'state': 'estado',
+      'city': 'cidade',
+      'participantType': 'tipo',
+      'type': 'tipo',
+      'role': 'role', // role geralmente é igual
+      // Mapeamento reverso se necessário
+      'estado': 'state',
+      'cidade': 'city',
+      'tipo': 'participantType',
+    };
+
     return participants.filter((participant) => {
       return Object.keys(filters).every((key) => {
         const filterValue = filters[key];
-        const participantValue = participant[key];
 
-        // Comparação estrita
-        return participantValue === filterValue;
+        // Ignorar filtros vazios, nulos ou "Todos"
+        if (filterValue === null || filterValue === undefined || filterValue === '' || filterValue === 'Todos') {
+          return true;
+        }
+
+        // Tentar encontrar o valor no participante usando a chave direta
+        let participantValue = participant[key];
+
+        // Se não encontrou, tentar usar o mapa de chaves
+        if (participantValue === undefined && keyMap[key]) {
+          participantValue = participant[keyMap[key]];
+        }
+
+        // Se ainda não encontrou e estamos procurando por uma chave em portugues,
+        // pode ser que o objeto esteja em inglês (ou vice-versa não mapeado)
+        if (participantValue === undefined) {
+          // Tentar encontrar uma chave que mapeia para a chave do filtro
+          // Ex: filtro='estado', mapa tem 'state'->'estado', tenta participant['state']
+          const reverseKey = Object.keys(keyMap).find(k => keyMap[k] === key);
+          if (reverseKey && participant[reverseKey] !== undefined) {
+            participantValue = participant[reverseKey];
+          }
+        }
+
+        // Se o valor não existe no participante, consideramos que não passou no filtro
+        // (a menos que seja um filtro que não se aplica ao objeto)
+        if (participantValue === undefined) {
+          console.log(`[WhatsApp Filter] Chave '${key}' não encontrada no participante.`);
+          return false;
+        }
+
+        // Comparação estrita para booleanos e números exatos
+        if (typeof filterValue === 'boolean' || typeof filterValue === 'number') {
+          return participantValue === filterValue;
+        }
+
+        // Comparação de strings (case insensitive e trim)
+        if (typeof filterValue === 'string') {
+          const pValStr = String(participantValue).toLowerCase().trim();
+          const fValStr = filterValue.toLowerCase().trim();
+
+          return pValStr === fValStr || pValStr.includes(fValStr);
+        }
+
+        // Fallback
+        return participantValue == filterValue;
       });
     });
   }
