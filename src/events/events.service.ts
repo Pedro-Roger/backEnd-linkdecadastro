@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class EventsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async listEvents(userRole: string | undefined) {
     if (!userRole) {
@@ -30,11 +30,11 @@ export class EventsService {
     // Normalizar e validar slug
     let normalizedSlug: string | null = null;
     if (slug && typeof slug === 'string' && slug.trim()) {
-      normalizedSlug = slug.trim().toLowerCase();
-      // Validar formato do slug (apenas letras minúsculas, números e hífens)
-      if (!/^[a-z0-9-]+$/.test(normalizedSlug)) {
-        throw new ForbiddenException('Slug inválido. Use apenas letras minúsculas, números e hífens.');
-      }
+      normalizedSlug = slug
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-') // Substitui caracteres especiais e espaços por hífen
+        .replace(/^-+|-+$/g, ''); // Remove hífens do início e fim
     } else {
       normalizedSlug = null;
     }
