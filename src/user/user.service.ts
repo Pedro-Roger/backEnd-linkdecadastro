@@ -163,6 +163,42 @@ export class UserService {
       totalProgress,
     };
   }
+
+  async listAllUsers(filters?: { state?: string; city?: string }) {
+    const where: any = {};
+
+    if (filters?.state) {
+      where.state = filters.state;
+    }
+
+    if (filters?.city) {
+      where.city = filters.city;
+    }
+
+    return this.prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        state: true,
+        city: true,
+        participantType: true,
+        role: true,
+        createdAt: true,
+        _count: {
+          select: {
+            enrollments: true,
+            registrations: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
 }
 
 

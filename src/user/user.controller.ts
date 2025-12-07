@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -53,6 +55,29 @@ export class UserController {
   @Get('stats')
   async getStats(@Req() req: any) {
     return this.userService.getStats(req.user.id);
+  }
+}
+
+@UseGuards(JwtAuthGuard)
+@Controller('admin/users')
+export class AdminUsersController {
+  constructor(private readonly userService: UserService) {}
+
+  @Get()
+  async listUsers(
+    @Req() req: any,
+    @Query('state') state?: string,
+    @Query('city') city?: string,
+  ) {
+    // Verificar se o usuário é admin
+    if (req.user.role !== 'ADMIN') {
+      throw new ForbiddenException('Acesso negado');
+    }
+
+    return this.userService.listAllUsers({
+      state: state || undefined,
+      city: city || undefined,
+    });
   }
 }
 
