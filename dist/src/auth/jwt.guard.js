@@ -10,6 +10,22 @@ exports.JwtAuthGuard = void 0;
 const common_1 = require("@nestjs/common");
 const passport_1 = require("@nestjs/passport");
 let JwtAuthGuard = class JwtAuthGuard extends (0, passport_1.AuthGuard)('jwt') {
+    handleRequest(err, user, info, context) {
+        if (err || !user) {
+            const request = context.switchToHttp().getRequest();
+            const headers = request.headers;
+            console.error('❌ [Auth] Falha na autenticação:', {
+                erro: err,
+                info: info ? info.message : 'Sem informação',
+                user: user,
+                ip: request.ip,
+                userAgent: headers['user-agent'],
+                authBub: headers['authorization'] ? 'Presente' : 'Ausente',
+            });
+            throw err || new common_1.UnauthorizedException('Acesso não autorizado');
+        }
+        return user;
+    }
 };
 exports.JwtAuthGuard = JwtAuthGuard;
 exports.JwtAuthGuard = JwtAuthGuard = __decorate([
