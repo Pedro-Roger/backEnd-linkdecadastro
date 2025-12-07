@@ -63,6 +63,7 @@ export declare class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         tipo: import("@prisma/client").$Enums.ParticipantType | null;
         estado: string | null;
         cidade: string | null;
+        cursos: string[];
     }[]>;
     isReady(): Promise<boolean>;
 }

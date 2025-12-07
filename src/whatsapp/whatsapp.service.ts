@@ -295,6 +295,17 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           console.log(`[WhatsApp Filter] Chave '${key}' não encontrada no participante.`);
           return false;
         }
+        // Se o valor no participante for um array (ex: lista de cursos)
+        if (Array.isArray(participantValue)) {
+          // Se o filtro for string, verificamos se o array contém essa string (case insensitive)
+          if (typeof filterValue === 'string') {
+            const fValStr = filterValue.toLowerCase().trim();
+            return participantValue.some(pVal =>
+              String(pVal).toLowerCase().trim() === fValStr ||
+              String(pVal).toLowerCase().trim().includes(fValStr)
+            );
+          }
+        }
 
         // Comparação estrita para booleanos e números exatos
         if (typeof filterValue === 'boolean' || typeof filterValue === 'number') {
@@ -490,6 +501,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         participantType: true,
         state: true,
         city: true,
+        enrollments: {
+          include: {
+            course: {
+              select: {
+                title: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -519,6 +539,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           tipo: user.participantType,
           estado: user.state,
           cidade: user.city,
+          cursos: user.enrollments.map((e) => e.course.title), // Lista de nomes dos cursos
         };
       });
   }

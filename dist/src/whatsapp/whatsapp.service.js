@@ -267,6 +267,13 @@ let WhatsAppService = class WhatsAppService {
                     console.log(`[WhatsApp Filter] Chave '${key}' não encontrada no participante.`);
                     return false;
                 }
+                if (Array.isArray(participantValue)) {
+                    if (typeof filterValue === 'string') {
+                        const fValStr = filterValue.toLowerCase().trim();
+                        return participantValue.some(pVal => String(pVal).toLowerCase().trim() === fValStr ||
+                            String(pVal).toLowerCase().trim().includes(fValStr));
+                    }
+                }
                 if (typeof filterValue === 'boolean' || typeof filterValue === 'number') {
                     return participantValue === filterValue;
                 }
@@ -387,6 +394,15 @@ let WhatsAppService = class WhatsAppService {
                 participantType: true,
                 state: true,
                 city: true,
+                enrollments: {
+                    include: {
+                        course: {
+                            select: {
+                                title: true,
+                            },
+                        },
+                    },
+                },
             },
         });
         return users
@@ -408,6 +424,7 @@ let WhatsAppService = class WhatsAppService {
                 tipo: user.participantType,
                 estado: user.state,
                 cidade: user.city,
+                cursos: user.enrollments.map((e) => e.course.title),
             };
         });
     }

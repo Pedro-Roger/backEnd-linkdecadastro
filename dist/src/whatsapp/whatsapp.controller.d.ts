@@ -43,6 +43,7 @@ export declare class WhatsAppController {
             tipo: import("@prisma/client").$Enums.ParticipantType | null;
             estado: string | null;
             cidade: string | null;
+            cursos: string[];
         }[];
         total: number;
     }>;
