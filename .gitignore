@@ -3,3 +3,9 @@ node_modules
 # WhatsApp session data
 .wwebjs_auth/
 .wwebjs_cache/
+
+# Build artifacts
+dist/
+
+# Environment
+.env
