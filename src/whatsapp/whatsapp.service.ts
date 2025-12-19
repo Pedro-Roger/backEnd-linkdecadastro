@@ -246,6 +246,42 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async requestPairingCode(phoneNumber: string): Promise<string> {
+    if (!this.client) {
+      // Se não há cliente, inicializar
+      await this.initializeClient();
+      // Aguardar um pouco para o cliente estar pronto para receber comandos
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+
+    if (this.status === WhatsAppStatus.AUTHENTICATED || this.status === WhatsAppStatus.READY) {
+      throw new Error('WhatsApp já está conectado!');
+    }
+
+    if (!phoneNumber) {
+      throw new Error('Número de telefone é obrigatório');
+    }
+
+    // Formatar número: remover caracteres não numéricos
+    let formattedPhone = phoneNumber.replace(/\D/g, '');
+
+    // Garantir formato internacional sem + no inicio (ex: 558599999999)
+    // Se o usuário mandou apenas com DDD (ex: 85999999999), assumir BR (55)
+    if (formattedPhone.length >= 10 && formattedPhone.length <= 11) {
+      formattedPhone = '55' + formattedPhone;
+    }
+
+    try {
+      console.log(`📱 [WhatsApp] Solicitando código de pareamento para: ${formattedPhone}`);
+      const code = await this.client!.requestPairingCode(formattedPhone);
+      console.log(`✅ [WhatsApp] Código gerado: ${code}`);
+      return code;
+    } catch (error: any) {
+      console.error('❌ [WhatsApp] Erro ao solicitar código de pareamento:', error);
+      throw new Error(`Erro ao gerar código: ${error.message}`);
+    }
+  }
+
   private filterParticipants(
     participants: Array<{
       id_contato: string;
