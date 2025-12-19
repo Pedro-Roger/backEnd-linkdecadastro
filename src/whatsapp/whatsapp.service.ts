@@ -36,12 +36,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
-    console.log('🚀 [WhatsApp] Iniciando serviço WhatsApp...');
-    // Inicializar de forma assíncrona sem bloquear o servidor
+    console.log('🚀 [WhatsApp] Serviço pronto (Inicialização sob demanda)');
+    // Inicialização automática desativada para economizar memória (Lazy Loading)
+    // O cliente será iniciado apenas quando getStatus() for chamado ou mensagem for enviada
+    /*
     this.initializeClient().catch((error) => {
       console.error('❌ [WhatsApp] Erro ao inicializar WhatsApp (não crítico):', error);
       // Não lançar erro para não bloquear o servidor
     });
+    */
   }
 
   async onModuleDestroy() {
@@ -69,13 +72,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       console.log('📱 [WhatsApp] Criando cliente WhatsApp...');
       this.status = WhatsAppStatus.CONNECTING;
 
-      // Configuração otimizada para Render e outros ambientes serverless
+      // Configuração otimizada para Render e outros ambientes serverless de BAIXA MEMÓRIA
       const puppeteerOptions: any = {
-        headless: true,
+        headless: true, // Modo headless (sem interface gráfica)
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
+          '--disable-dev-shm-usage', // Usa /tmp em vez de /dev/shm (evita crash por falta de memória compartilhada)
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
           '--no-zygote',
@@ -83,7 +86,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           '--disable-web-security',
           '--disable-features=IsolateOrigins,site-per-process',
           '--disable-site-isolation-trials',
-          '--single-process',
+          '--single-process', // Importante para baixo consumo de memória
           '--disable-background-networking',
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
@@ -102,7 +105,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           '--disable-print-preview',
           '--disable-prompt-on-repost',
           '--disable-renderer-backgrounding',
-          '--disable-setuid-sandbox',
           '--disable-speech-api',
           '--disable-sync',
           '--disable-translate',
@@ -113,10 +115,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           '--mute-audio',
           '--no-default-browser-check',
           '--no-pings',
-          '--no-sandbox',
           '--password-store=basic',
           '--use-gl=swiftshader',
           '--use-mock-keychain',
+          // Flags adicionais para extrema economia de memória:
+          '--renderer-process-limit=1', // Limita processos de renderização
+          '--disable-software-rasterizer',
+          '--disable-javascript-harmony-shipping',
         ],
       };
 
@@ -140,6 +145,12 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           dataPath: this.sessionPath,
         }),
         puppeteer: puppeteerOptions,
+        // Cache da versão Web para evitar downloads frequentes e processamento extra
+        webVersionCache: {
+          type: 'remote',
+          remotePath:
+            'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+        },
       });
 
       // Evento de QR Code
