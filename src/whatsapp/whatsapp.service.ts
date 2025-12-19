@@ -86,7 +86,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           '--disable-web-security',
           '--disable-features=IsolateOrigins,site-per-process',
           '--disable-site-isolation-trials',
-          '--single-process', // Importante para baixo consumo de memória
+          // '--single-process', // Causou instabilidade no QR Code (loop refresh)
           '--disable-background-networking',
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
@@ -118,8 +118,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           '--password-store=basic',
           '--use-gl=swiftshader',
           '--use-mock-keychain',
-          // Flags adicionais para extrema economia de memória:
-          '--renderer-process-limit=1', // Limita processos de renderização
+          // Flags adicionais para economia de memória (Moderadas):
+          // '--renderer-process-limit=1', // Removido por instabilidade
           '--disable-software-rasterizer',
           '--disable-javascript-harmony-shipping',
         ],
