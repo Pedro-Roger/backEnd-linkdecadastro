@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
     IsArray,
     IsBoolean,
@@ -22,6 +22,7 @@ class FirstLessonDto {
 
     @IsString()
     @IsOptional()
+    @Transform(({ value }) => (value === '' ? undefined : value))
     description?: string;
 
     @IsString()
@@ -63,11 +64,13 @@ export class CreateCourseDto {
 
     @IsString()
     @IsOptional()
+    @Transform(({ value }) => (value === '' ? undefined : value))
     description?: string;
 
     @IsString()
     @IsOptional()
     @IsUrl()
+    @Transform(({ value }) => (value === '' ? undefined : value))
     bannerUrl?: string;
 
     @IsString()
@@ -114,10 +117,12 @@ export class CreateCourseDto {
 
     @IsDateString()
     @IsOptional()
+    @Transform(({ value }) => (value === '' ? undefined : value))
     startDate?: string;
 
     @IsDateString()
     @IsOptional()
+    @Transform(({ value }) => (value === '' ? undefined : value))
     endDate?: string;
 
     @IsString()
@@ -125,6 +130,7 @@ export class CreateCourseDto {
     @Matches(/^[a-z0-9-]+$/, {
         message: 'URL personalizada deve conter apenas letras minúsculas, números e hífens',
     })
+    @Transform(({ value }) => (value === '' ? undefined : value))
     slug?: string;
 
     @ValidateNested()

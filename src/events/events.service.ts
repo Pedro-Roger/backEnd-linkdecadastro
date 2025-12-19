@@ -27,17 +27,9 @@ export class EventsService {
 
     const { title, description, bannerUrl, maxRegistrations, slug } = body;
 
-    // Normalizar e validar slug
-    let normalizedSlug: string | null = null;
-    if (slug && typeof slug === 'string' && slug.trim()) {
-      normalizedSlug = slug
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-') // Substitui caracteres especiais e espaços por hífen
-        .replace(/^-+|-+$/g, ''); // Remove hífens do início e fim
-    } else {
-      normalizedSlug = null;
-    }
+    // Slug já vem limpo pelo DTO (undefined se vazio)
+    // Mas se quiser garantir formato seguro extra:
+    let normalizedSlug = slug;
 
     const linkId = `evt-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
