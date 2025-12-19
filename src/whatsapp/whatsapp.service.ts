@@ -255,6 +255,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       'participantType': 'tipo',
       'type': 'tipo',
       'role': 'role', // role geralmente é igual
+      'course': 'cursos',
+      'curso': 'cursos',
+      'courses': 'cursos',
       // Mapeamento reverso se necessário
       'estado': 'state',
       'cidade': 'city',
@@ -267,6 +270,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
         // Ignorar filtros vazios, nulos ou "Todos"
         if (filterValue === null || filterValue === undefined || filterValue === '' || filterValue === 'Todos') {
+          return true;
+        }
+
+        // Special case: Ignore context type filters (Curso/Evento) that shouldn't filter users
+        // The frontend sends type='Curso' or 'Evento' as context, but this doesn't match any participantType
+        if ((key === 'type' || key === 'tipo') &&
+          typeof filterValue === 'string' &&
+          ['curso', 'evento', 'course', 'event'].includes(filterValue.toLowerCase())) {
           return true;
         }
 
