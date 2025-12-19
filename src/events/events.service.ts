@@ -29,25 +29,39 @@ export class EventsService {
       throw new ForbiddenException('Não autorizado');
     }
 
-    const { title, description, bannerUrl, maxRegistrations, slug } = body;
+    const { title, description, bannerUrl, maxRegistrations, slug, status, municipalities } = body;
 
     // Slug já vem limpo pelo DTO (undefined se vazio)
-    // Mas se quiser garantir formato seguro extra:
     let normalizedSlug = slug;
 
     const linkId = `evt-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-    return this.prisma.event.create({
-      data: {
-        title,
-        description,
-        bannerUrl,
-        maxRegistrations,
-        slug: normalizedSlug || undefined,
-        linkId,
-        createdBy: userId,
-        status: 'ACTIVE',
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const event = await tx.event.create({
+        data: {
+          title,
+          description,
+          bannerUrl,
+          maxRegistrations,
+          slug: normalizedSlug || undefined,
+          linkId,
+          createdBy: userId,
+          status: status || 'ACTIVE',
+        },
+      });
+
+      if (municipalities && Array.isArray(municipalities) && municipalities.length > 0) {
+        await tx.municipalityLimit.createMany({
+          data: municipalities.map((m: any) => ({
+            eventId: event.id,
+            municipality: m.municipality,
+            state: m.state,
+            defaultLimit: m.defaultLimit,
+          })),
+        });
+      }
+
+      return event;
     });
   }
 

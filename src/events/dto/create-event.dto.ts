@@ -1,6 +1,6 @@
-
-import { Transform } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
+    IsArray,
     IsInt,
     IsNotEmpty,
     IsOptional,
@@ -8,7 +8,27 @@ import {
     IsUrl,
     Matches,
     Min,
+    ValidateNested,
 } from 'class-validator';
+
+export class MunicipalityLimitDto {
+    @IsString()
+    @IsNotEmpty()
+    municipality: string;
+
+    @IsString()
+    @IsNotEmpty()
+    state: string;
+
+    @IsInt()
+    @Min(0)
+    @Transform(({ value }) => {
+        if (value === '' || value === null) return 0;
+        const parsed = Number(value);
+        return isNaN(parsed) ? 0 : parsed;
+    })
+    defaultLimit: number;
+}
 
 export class CreateEventDto {
     @IsString()
@@ -42,4 +62,14 @@ export class CreateEventDto {
         return isNaN(parsed) ? undefined : parsed;
     })
     maxRegistrations?: number;
+
+    @IsString()
+    @IsOptional()
+    status?: 'ACTIVE' | 'INACTIVE' | 'CLOSED';
+
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => MunicipalityLimitDto)
+    @IsOptional()
+    municipalities?: MunicipalityLimitDto[];
 }
