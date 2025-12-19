@@ -79,13 +79,11 @@ export class AdminCoursesService {
         if (filters.city) {
           where.city = {
             contains: filters.city,
-            mode: 'insensitive',
           };
         }
         if (filters.state) {
           where.state = {
             contains: filters.state,
-            mode: 'insensitive',
           };
         }
         if (filters.participantType) {
@@ -134,8 +132,8 @@ export class AdminCoursesService {
           where: {
             eventId: eventId,
             // Aplicar filtros de cidade/estado diretamente no registro se disponíveis
-            ...(filters?.city ? { city: { contains: filters.city, mode: 'insensitive' } } : {}),
-            ...(filters?.state ? { state: { contains: filters.state, mode: 'insensitive' } } : {}),
+            ...(filters?.city ? { city: { contains: filters.city } } : {}),
+            ...(filters?.state ? { state: { contains: filters.state } } : {}),
             ...(filters?.participantType ? { participantType: filters.participantType as any } : {})
           },
           select: {
