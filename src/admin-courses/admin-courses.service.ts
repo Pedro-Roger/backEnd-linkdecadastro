@@ -133,7 +133,6 @@ export class AdminCoursesService {
         const registrations = await this.prisma.registration.findMany({
           where: {
             eventId: eventId,
-            phone: { not: null },
             // Aplicar filtros de cidade/estado diretamente no registro se disponíveis
             ...(filters?.city ? { city: { contains: filters.city, mode: 'insensitive' } } : {}),
             ...(filters?.state ? { state: { contains: filters.state, mode: 'insensitive' } } : {}),
