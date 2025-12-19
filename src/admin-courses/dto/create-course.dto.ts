@@ -49,11 +49,21 @@ class RegionQuotaDto {
 
     @IsInt()
     @Min(0)
+    @Transform(({ value }) => {
+        if (value === '' || value === null) return 0;
+        const parsed = Number(value);
+        return isNaN(parsed) ? 0 : parsed;
+    })
     limit: number;
 
     @IsInt()
     @Min(0)
     @IsOptional()
+    @Transform(({ value }) => {
+        if (value === '' || value === null) return 0;
+        const parsed = Number(value);
+        return isNaN(parsed) ? 0 : parsed;
+    })
     waitlistLimit?: number;
 }
 
@@ -85,28 +95,61 @@ export class CreateCourseDto {
     @IsInt()
     @Min(0)
     @IsOptional()
+    @Transform(({ value }) => {
+        if (value === '' || value === null) return undefined;
+        const parsed = Number(value);
+        return isNaN(parsed) ? undefined : parsed;
+    })
     maxEnrollments?: number;
 
     @IsBoolean()
     @IsOptional()
+    @Transform(({ value }) => {
+        if (value === 'true') return true;
+        if (value === 'false') return false;
+        if (value === '') return undefined;
+        return value;
+    })
     waitlistEnabled?: boolean;
 
     @IsInt()
     @Min(0)
     @IsOptional()
+    @Transform(({ value }) => {
+        if (value === '' || value === null) return 0;
+        const parsed = Number(value);
+        return isNaN(parsed) ? 0 : parsed;
+    })
     waitlistLimit?: number;
 
     @IsBoolean()
     @IsOptional()
+    @Transform(({ value }) => {
+        if (value === 'true') return true;
+        if (value === 'false') return false;
+        if (value === '') return undefined;
+        return value;
+    })
     regionRestrictionEnabled?: boolean;
 
     @IsBoolean()
     @IsOptional()
+    @Transform(({ value }) => {
+        if (value === 'true') return true;
+        if (value === 'false') return false;
+        if (value === '') return undefined;
+        return value;
+    })
     allowAllRegions?: boolean;
 
     @IsInt()
     @Min(0)
     @IsOptional()
+    @Transform(({ value }) => {
+        if (value === '' || value === null) return undefined;
+        const parsed = Number(value);
+        return isNaN(parsed) ? undefined : parsed;
+    })
     defaultRegionLimit?: number;
 
     @IsArray()

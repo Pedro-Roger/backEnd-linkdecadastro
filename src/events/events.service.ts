@@ -6,11 +6,15 @@ export class EventsService {
   constructor(private readonly prisma: PrismaService) { }
 
   async listEvents(userRole: string | undefined) {
-    if (!userRole) {
-      throw new ForbiddenException('Não autorizado');
+    const where: any = {};
+
+    // Se não for admin, mostrar apenas eventos ativos e não ocultos
+    if (userRole !== 'ADMIN') {
+      where.status = 'ACTIVE';
     }
 
     return this.prisma.event.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       include: {
         _count: {

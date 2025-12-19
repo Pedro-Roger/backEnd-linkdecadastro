@@ -7,10 +7,10 @@ import { CreateEventDto } from './dto/create-event.dto';
 export class EventsController {
   constructor(private readonly eventsService: EventsService) { }
 
-  @UseGuards(JwtAuthGuard)
   @Get()
   async listEvents(@Req() req: any) {
-    return this.eventsService.listEvents(req.user.role);
+    const userRole = req.user?.role;
+    return this.eventsService.listEvents(userRole);
   }
 
   @UseGuards(JwtAuthGuard)

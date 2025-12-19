@@ -89,34 +89,87 @@ export class AdminCoursesService {
           };
         }
         if (filters.participantType) {
-          // O campo no banco é participantType, e assumimos que o filtro vem compatível (ex: PRODUTOR, PROFESSOR)
-          // Mas na interface o select envia "PRODUTOR", "PROFESSOR", "ESTUDANTE".
-          // Vamos fazer uma busca case-insensitive se necessário, ou direto se o banco usar upper.
-          // Assumindo que o banco guarda em UPPER ou conforme o enum.
-          // Se for enum do prisma, é case sensitive.
-          // O frontend envia PRODUTOR, PROFESSOR, ESTUDANTE.
-          // Vamos tentar filtrar flexível ou exato.
           where.participantType = filters.participantType;
         }
       }
 
-      // Buscar todos os usuários que têm telefone
-      const users = await this.prisma.user.findMany({
-        where: {
-          ...where,
-          phone: { not: null }, // Só queremos quem tem telefone
-        },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          phone: true,
-          city: true,
-          state: true,
-          participantType: true,
-        },
-        orderBy: { name: 'asc' },
-      });
+      // Filtro adicional para buscar APENAS inscritos num curso/evento específico
+      // Isso muda a lógica de buscar "todos os usuários" para "usuários inscritos neste curso"
+      // Se não houver courseId ou eventId, mantém a lógica de buscar todos
+
+      let users: any[] = [];
+
+      const courseId = (filters as any).courseId;
+      const eventId = (filters as any).eventId;
+
+      if (courseId) {
+        // Buscar inscrições deste curso
+        const enrollments = await this.prisma.enrollment.findMany({
+          where: {
+            courseId: courseId,
+            user: {
+              phone: { not: null },
+              ...where
+            }
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                city: true,
+                state: true,
+                participantType: true,
+              }
+            }
+          }
+        });
+        users = enrollments.map(e => e.user);
+      }
+      else if (eventId) {
+        // Buscar inscrições deste evento
+        const registrations = await this.prisma.registration.findMany({
+          where: {
+            eventId: eventId,
+            phone: { not: null },
+            // Aplicar filtros de cidade/estado diretamente no registro se disponíveis
+            ...(filters?.city ? { city: { contains: filters.city, mode: 'insensitive' } } : {}),
+            ...(filters?.state ? { state: { contains: filters.state, mode: 'insensitive' } } : {}),
+            ...(filters?.participantType ? { participantType: filters.participantType as any } : {})
+          },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            city: true,
+            state: true,
+            participantType: true,
+          }
+        });
+        users = registrations;
+      }
+      else {
+        // Comportamento padrão: buscar todos os usuários (todos cadastrados na plataforma)
+        users = await this.prisma.user.findMany({
+          where: {
+            ...where,
+            phone: { not: null }, // Só queremos quem tem telefone
+          },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            city: true,
+            state: true,
+            participantType: true,
+          },
+          orderBy: { name: 'asc' },
+        });
+      }
 
       // Processar e normalizar
       const participants = users

@@ -33,12 +33,16 @@ export class AdminCoursesController {
     @Query('city') city?: string,
     @Query('state') state?: string,
     @Query('participantType') participantType?: string,
+    @Query('courseId') courseId?: string,
+    @Query('eventId') eventId?: string,
   ) {
     return this.adminCoursesService.listAllEnrollmentsForWhatsApp(req.user.role, {
       city,
       state,
       participantType,
-    });
+      courseId,
+      eventId,
+    } as any);
   }
 
   @Post()
