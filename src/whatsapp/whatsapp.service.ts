@@ -145,12 +145,12 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           dataPath: this.sessionPath,
         }),
         puppeteer: puppeteerOptions,
-        // Cache da versão Web para evitar downloads frequentes e processamento extra
-        webVersionCache: {
-          type: 'remote',
-          remotePath:
-            'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
-        },
+        // Cache da versão Web removido para permitir uso da versão mais recente compatível
+        // webVersionCache: {
+        //   type: 'remote',
+        //   remotePath:
+        //     'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+        // },
       });
 
       // Evento de QR Code

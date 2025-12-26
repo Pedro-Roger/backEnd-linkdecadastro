@@ -5,7 +5,7 @@ import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class CoursesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async listCourses(filter?: string) {
     const now = new Date();
@@ -440,12 +440,12 @@ export class CoursesService {
         participantType === 'PRODUTOR' && hectares
           ? parseFloat(hectares)
           : null;
-      
+
       const parsedWaterArea =
         participantType === 'PRODUTOR' && waterArea
           ? parseFloat(waterArea)
           : null;
-      
+
       const parsedPonds =
         participantType === 'PRODUTOR' && ponds
           ? parseInt(ponds)
@@ -556,6 +556,10 @@ export class CoursesService {
           phone: whatsappNumber,
           ...(formattedState ? { state: formattedState } : {}),
           ...(formattedCity ? { city: formattedCity } : {}),
+          ...(parsedHectares !== null ? { hectares: parsedHectares } : {}),
+          ...(parsedWaterArea !== null ? { waterArea: parsedWaterArea } : {}),
+          ...(parsedPonds !== null ? { ponds: parsedPonds } : {}),
+          ...(participantType ? { participantType: participantType as any } : {}),
         },
       });
 
