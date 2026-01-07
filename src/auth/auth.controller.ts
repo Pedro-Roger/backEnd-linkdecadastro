@@ -50,30 +50,30 @@ export class AuthController {
     return this.authService.getProfile(req.user.id);
   }
 
-  @Get('google')
-  @UseGuards(AuthGuard('google'))
-  async googleAuth() {
-    // Inicia o fluxo OAuth - o Passport redireciona automaticamente
-  }
+  // @Get('google')
+  // @UseGuards(AuthGuard('google'))
+  // async googleAuth() {
+  //   // Inicia o fluxo OAuth - o Passport redireciona automaticamente
+  // }
 
-  @Get('google/callback')
-  @UseGuards(AuthGuard('google'))
-  async googleAuthRedirect(@Req() req: any, @Res() res: Response) {
-    try {
-      const googleUser = req.user;
-      const result = await this.authService.googleLogin(googleUser);
+  // @Get('google/callback')
+  // @UseGuards(AuthGuard('google'))
+  // async googleAuthRedirect(@Req() req: any, @Res() res: Response) {
+  //   try {
+  //     const googleUser = req.user;
+  //     const result = await this.authService.googleLogin(googleUser);
       
-      // Normaliza a URL do frontend (remove barra final se existir)
-      const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
-      const redirectUrl = `${frontendUrl}/auth/google/callback?token=${result.accessToken}&user=${encodeURIComponent(JSON.stringify(result.user))}`;
+  //     // Normaliza a URL do frontend (remove barra final se existir)
+  //     const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  //     const redirectUrl = `${frontendUrl}/auth/google/callback?token=${result.accessToken}&user=${encodeURIComponent(JSON.stringify(result.user))}`;
       
-      res.redirect(redirectUrl);
-    } catch (error) {
-      // Normaliza a URL do frontend (remove barra final se existir)
-      const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
-      res.redirect(`${frontendUrl}/login?error=google_auth_failed`);
-    }
-  }
+  //     res.redirect(redirectUrl);
+  //   } catch (error) {
+  //     // Normaliza a URL do frontend (remove barra final se existir)
+  //     const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  //     res.redirect(`${frontendUrl}/login?error=google_auth_failed`);
+  //   }
+  // }
 }
 
 

@@ -4,7 +4,7 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
-import { GoogleStrategy } from './google.strategy';
+import { GoogleStrategy } from './google.strategy'; // Removido: import { GoogleStrategy } from './google.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Module({
@@ -18,11 +18,9 @@ import { PrismaService } from '../prisma/prisma.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, GoogleStrategy, PrismaService],
+  providers: [AuthService, JwtStrategy, PrismaService],
   // Exporta AuthService e JwtModule para que outros módulos (ex.: CoursesModule)
   // possam injetar JwtService com a mesma configuração de JWT.
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}
-
-
