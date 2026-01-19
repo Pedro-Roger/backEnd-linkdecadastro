@@ -383,7 +383,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // Assumimos status CONFIRMED ou PENDING? O usuário disse que "viram Users", então vamos pegar todos ou talvez só CONFIRMED?
     // O pedido diz "busca seja possivel fazer na tabela de registration"
     const registrations = await this.prisma.registration.findMany({
-      where: { phone: { not: null } },
       select: {
         id: true, name: true, phone: true, email: true, participantType: true, state: true, city: true,
         event: { select: { title: true } }
