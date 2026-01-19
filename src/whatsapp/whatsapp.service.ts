@@ -337,8 +337,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         await this.socket.sendMessage(jid, { text: mensagemPersonalizada });
         resultados.push({ contato: participante.id_contato, sucesso: true });
         
-        // Anti-ban delay
-        await delay(1000 + Math.random() * 2000); 
+        // Anti-ban delay (10 seconds)
+        await delay(10000); 
 
       } catch (error: any) {
         resultados.push({ contato: participante.id_contato, sucesso: false, erro: error.message });
