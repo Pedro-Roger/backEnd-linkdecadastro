@@ -215,6 +215,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       'course': 'cursos',
       'curso': 'cursos',
       'courses': 'cursos',
+      'event': 'eventos',
+      'evento': 'eventos',
+      'events': 'eventos',
+      'eventos': 'eventos',
       'estado': 'state',
       'cidade': 'city',
       'tipo': 'participantType',
@@ -366,6 +370,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getParticipants() {
+    // Buscar Usuários
     const users = await this.prisma.user.findMany({
       where: { phone: { not: null } },
       select: {
@@ -374,7 +379,18 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    return users
+    // Buscar Inscrições em Eventos (Registrations)
+    // Assumimos status CONFIRMED ou PENDING? O usuário disse que "viram Users", então vamos pegar todos ou talvez só CONFIRMED?
+    // O pedido diz "busca seja possivel fazer na tabela de registration"
+    const registrations = await this.prisma.registration.findMany({
+      where: { phone: { not: null } },
+      select: {
+        id: true, name: true, phone: true, email: true, participantType: true, state: true, city: true,
+        event: { select: { title: true } }
+      }
+    });
+
+    const mappedUsers = users
       .filter((user) => user.phone && user.phone.length >= 10)
       .map((user) => {
         let phone = user.phone!.replace(/\D/g, '');
@@ -383,7 +399,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
         return {
           id: user.id,
-          id_contato: `${phone}@c.us`, // Manter @c.us aqui para compatibilidade com logs antigos, converto para @s.whatsapp.net no envio
+          id_contato: `${phone}@c.us`,
           nome: user.name,
           email: user.email,
           role: user.role,
@@ -391,8 +407,60 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           estado: user.state,
           cidade: user.city,
           cursos: user.enrollments.map((e) => e.course.title),
+          eventos: [], // Usuários podem não ter eventos diretos ou teríamos que buscar outro lugar, por hora vazio
+          origem: 'users'
         };
       });
+
+    const mappedRegistrations = registrations
+      .filter((reg) => reg.phone && reg.phone.length >= 10)
+      .map((reg) => {
+        let phone = reg.phone!.replace(/\D/g, '');
+        if (phone.startsWith('0') && phone.length > 11) phone = phone.substring(1);
+        if (phone.length >= 10 && phone.length <= 11) phone = '55' + phone;
+
+        return {
+          id: reg.id,
+          id_contato: `${phone}@c.us`,
+          nome: reg.name,
+          email: reg.email,
+          role: 'USER', // Default para registrations
+          tipo: reg.participantType,
+          estado: reg.state,
+          cidade: reg.city,
+          cursos: [],
+          eventos: [reg.event.title],
+          origem: 'registrations'
+        };
+      });
+
+    // Combinar e remover duplicatas baseadas no telefone?
+    // O usuário disse que registrations viram users, então pode haver duplicação.
+    // Vamos priorizar Users se houver conflito de telefone? Ou listar tudo?
+    // "noa misturar tudo" -> talvez manter separado? Mas "busca seja possivel fazer na tabela de registration igual em users"
+    // Vou concatenar por enquanto. Se precisar desduplicar, podemos fazer um map por telefone.
+    
+    // Melhor desduplicar por telefone para não enviar msg 2x pro mesmo numero
+    const allParticipantsMap = new Map();
+
+    [...mappedUsers, ...mappedRegistrations].forEach(p => {
+        if (!allParticipantsMap.has(p.id_contato)) {
+            allParticipantsMap.set(p.id_contato, p);
+        } else {
+            // Merge de informações se já existe?
+            // Ex: user tem cursos, registration tem eventos.
+            const existing = allParticipantsMap.get(p.id_contato);
+            if (p.eventos && p.eventos.length > 0) {
+                existing.eventos = [...(existing.eventos || []), ...p.eventos];
+            }
+            if (p.cursos && p.cursos.length > 0) {
+                existing.cursos = [...(existing.cursos || []), ...p.cursos];
+            }
+            // Atualizar tipo/role se necessário? Manter User priority (já garantido pela ordem se mappedUsers vier primeiro)
+        }
+    });
+
+    return Array.from(allParticipantsMap.values());
   }
 
   async isReady(): Promise<boolean> {
