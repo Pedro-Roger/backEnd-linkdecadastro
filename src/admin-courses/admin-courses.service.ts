@@ -149,23 +149,46 @@ export class AdminCoursesService {
         users = registrations;
       }
       else {
-        // Comportamento padrão: buscar todos os usuários (todos cadastrados na plataforma)
-        users = await this.prisma.user.findMany({
-          where: {
-            ...where,
-            phone: { not: null }, // Só queremos quem tem telefone
-          },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-            city: true,
-            state: true,
-            participantType: true,
-          },
-          orderBy: { name: 'asc' },
-        });
+        // Comportamento padrão: buscar todos os usuários E todas as inscrições em eventos
+        // Isso garante que alunos que só se inscreveram em eventos (e não criaram conta) também apareçam
+
+        const [dbUsers, dbRegistrations] = await Promise.all([
+          this.prisma.user.findMany({
+            where: {
+              ...where,
+              phone: { not: null }, // Só queremos quem tem telefone
+            },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              city: true,
+              state: true,
+              participantType: true,
+            },
+            orderBy: { name: 'asc' },
+          }),
+          this.prisma.registration.findMany({
+             where: {
+               // Reutilizar os mesmos filtros de cidade/estado/tipo
+               ...where,
+               phone: { not: null }
+             },
+             select: {
+               id: true,
+               name: true,
+               email: true,
+               phone: true,
+               city: true,
+               state: true,
+               participantType: true,
+             }
+          })
+        ]);
+
+        // Combinar ambas as listas
+        users = [...dbUsers, ...dbRegistrations];
       }
 
       // Processar e normalizar
