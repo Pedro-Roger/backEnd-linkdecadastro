@@ -23,7 +23,7 @@ export class RegistrationsService {
     participantType: ParticipantType;
     otherType?: string;
     pondCount?: number;
-    waterDepth?: number;
+    waterArea?: number;
   }) {
     const existingRegistration = await this.prisma.registration.findUnique({
       where: { cpf: data.cpf },
@@ -128,7 +128,7 @@ export class RegistrationsService {
       participantType: ParticipantType | 'OUTROS';
       otherType?: string;
       pondCount?: number;
-      waterDepth?: number;
+      waterArea?: number;
     };
 
     const event = await this.prisma.event.findUnique({

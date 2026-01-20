@@ -156,7 +156,7 @@ model Registration {
   participantType ParticipantType
   otherType       String?
   pondCount       Int?
-  waterDepth      Float?
+  waterArea       Float?
 
   status    RegistrationStatus @default(PENDING)
   createdAt DateTime           @default(now())

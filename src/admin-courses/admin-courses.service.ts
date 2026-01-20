@@ -72,6 +72,7 @@ export class AdminCoursesService {
     this.assertAdmin(userRole);
 
     try {
+      console.log('listAllEnrollmentsForWhatsApp filters:', filters); // Debug log
       // Construction do filtro do Prisma
       const where: any = {};
 
@@ -230,6 +231,7 @@ export class AdminCoursesService {
         participantes: uniqueParticipants,
       };
     } catch (error) {
+      console.error('Error ANY in listAllEnrollmentsForWhatsApp:', error);
       throw error;
     }
   }
