@@ -129,6 +129,7 @@ export class AdminCoursesService {
       }
       else if (eventId) {
         // Buscar inscrições deste evento
+        console.log('[DEBUG] Buscando registrations para eventId:', eventId);
         const registrations = await this.prisma.registration.findMany({
           where: {
             eventId: eventId,
@@ -147,6 +148,8 @@ export class AdminCoursesService {
             participantType: true,
           }
         });
+        console.log('[DEBUG] Registrations encontrados:', registrations.length);
+        console.log('[DEBUG] Primeiros 3 registros:', registrations.slice(0, 3));
         users = registrations;
       }
       else {
@@ -193,6 +196,7 @@ export class AdminCoursesService {
       }
 
       // Processar e normalizar
+      console.log('[DEBUG] Total de users antes de processar:', users.length);
       const participants = users
         .map((user) => {
           const phone = user.phone;
@@ -221,10 +225,15 @@ export class AdminCoursesService {
         })
         .filter((p) => p !== null);
 
+      console.log('[DEBUG] Participantes após processar:', participants.length);
+
       // Remover duplicatas por telefone/id_contato
       const uniqueParticipants = Array.from(
         new Map(participants.map((p) => [p!.id_contato, p!])).values(),
       );
+
+      console.log('[DEBUG] Participantes únicos:', uniqueParticipants.length);
+      console.log('[DEBUG] Retornando resposta...');
 
       return {
         total: uniqueParticipants.length,
