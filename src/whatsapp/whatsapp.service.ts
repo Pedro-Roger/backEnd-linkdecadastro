@@ -344,23 +344,44 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           mensagemPersonalizada = mensagemPersonalizada.replace(/{nome}/g, '').replace(/Olá, !/g, 'Olá!').replace(/Olá, /g, 'Olá! ');
         }
         
-        // Baileys JID format check
-        let jid = participante.id_contato;
-        console.log('[BACKEND] Enviando para:', jid);
+        // Formatar número para busca (apenas dígitos)
+        let phoneSearch = participante.id_contato.replace(/\D/g, '');
         
-        // Garantir formato JID correto do WhatsApp
-        if (!jid.includes('@')) {
-          // Se não tem @, adiciona o sufixo padrão
-          jid = `${jid}@s.whatsapp.net`;
-        } else if (jid.includes('@c.us')) {
-          // Se tem @c.us, converte para formato Baileys
-          jid = jid.replace('@c.us', '@s.whatsapp.net');
+        // Se for BR e tiver 12 ou 13 dígitos (55 + DDD + 9 + numero), vamos tentar validar
+        // A função onWhatsApp do Baileys lida bem com variações se passarmos o formato internacional sem +
+        if (!phoneSearch.startsWith('55') && phoneSearch.length >= 10 && phoneSearch.length <= 11) {
+             phoneSearch = '55' + phoneSearch;
         }
-        
-        console.log('[BACKEND] JID formatado:', jid);
-        console.log('[BACKEND] Mensagem:', mensagemPersonalizada.substring(0, 50) + '...');
 
-        await this.socket.sendMessage(jid, { text: mensagemPersonalizada });
+        console.log(`[BACKEND] Verificando existência do número: ${phoneSearch}`);
+        
+        // JID para envio
+        let jidEnvio = '';
+
+        try {
+            // Verifica se o número existe no WhatsApp e pega o JID correto (lida com o 9º dígito automaticamente)
+            const results = await this.socket.onWhatsApp(phoneSearch);
+            const result = results && results.length > 0 ? results[0] : null;
+
+            if (result && result.exists) {
+                jidEnvio = result.jid;
+                console.log(`[BACKEND] Número validado: ${phoneSearch} -> JID: ${jidEnvio}`);
+            } else {
+                 console.log(`[BACKEND] ⚠️ Número não encontrado no WhatsApp: ${phoneSearch}. Tentando envio direto como fallback...`);
+                 // Fallback: Tenta montar manualmente se a validação falhar (ex: instabilidade)
+                 jidEnvio = phoneSearch.includes('@') ? phoneSearch : `${phoneSearch}@s.whatsapp.net`;
+                 if (jidEnvio.includes('@c.us')) jidEnvio = jidEnvio.replace('@c.us', '@s.whatsapp.net');
+            }
+        } catch (err) {
+            console.error(`[BACKEND] Erro ao validar número ${phoneSearch}:`, err);
+            // Fallback em caso de erro na checagem
+            jidEnvio = phoneSearch.includes('@') ? phoneSearch : `${phoneSearch}@s.whatsapp.net`;
+            if (jidEnvio.includes('@c.us')) jidEnvio = jidEnvio.replace('@c.us', '@s.whatsapp.net');
+        }
+
+        console.log('[BACKEND] Enviando mensagem final para:', jidEnvio);
+
+        await this.socket.sendMessage(jidEnvio, { text: mensagemPersonalizada });
         console.log('[BACKEND] ✅ Mensagem enviada com sucesso para:', participante.id_contato);
         resultados.push({ contato: participante.id_contato, sucesso: true });
         
