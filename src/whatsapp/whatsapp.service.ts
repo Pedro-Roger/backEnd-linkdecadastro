@@ -312,12 +312,26 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     falhas: number;
     detalhes: Array<{ contato: string; sucesso: boolean; erro?: string }>;
   }> {
+     console.log('[BACKEND] enviarMensagemSegmentada chamado');
+     console.log('[BACKEND] Total participantes recebidos:', participantes.length);
+     console.log('[BACKEND] Filtros:', filtros);
+     console.log('[BACKEND] WhatsApp status:', this.status);
+     console.log('[BACKEND] Socket presente:', !!this.socket);
+
      if (!this.socket || this.status !== WhatsAppStatus.READY) {
-      throw new Error('WhatsApp não está conectado. Status: ' + this.status);
+      const erro = 'WhatsApp não está conectado. Status: ' + this.status;
+      console.error('[BACKEND] ERRO:', erro);
+      throw new Error(erro);
     }
 
     const participantesFiltrados = this.filterParticipants(participantes, filtros);
-    if (participantesFiltrados.length === 0) throw new Error('Nenhum participante atende aos filtros');
+    console.log('[BACKEND] Participantes após filtro:', participantesFiltrados.length);
+    console.log('[BACKEND] Primeiros 3 participantes filtrados:', participantesFiltrados.slice(0, 3));
+    
+    if (participantesFiltrados.length === 0) {
+      console.error('[BACKEND] Nenhum participante passou pelos filtros!');
+      throw new Error('Nenhum participante atende aos filtros');
+    }
 
     const resultados: any[] = [];
 
@@ -332,21 +346,31 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         
         // Baileys JID format check
         let jid = participante.id_contato;
+        console.log('[BACKEND] Enviando para:', jid);
+        
         if (jid.includes('@c.us')) jid = jid.replace('@c.us', '@s.whatsapp.net');
+        
+        console.log('[BACKEND] JID formatado:', jid);
+        console.log('[BACKEND] Mensagem:', mensagemPersonalizada.substring(0, 50) + '...');
 
         await this.socket.sendMessage(jid, { text: mensagemPersonalizada });
+        console.log('[BACKEND] ✅ Mensagem enviada com sucesso para:', participante.id_contato);
         resultados.push({ contato: participante.id_contato, sucesso: true });
         
         // Anti-ban delay (10 seconds)
+        console.log('[BACKEND] Aguardando 10 segundos antes do próximo envio...');
         await delay(10000); 
 
       } catch (error: any) {
+        console.error('[BACKEND] ❌ Erro ao enviar para:', participante.id_contato, error.message);
         resultados.push({ contato: participante.id_contato, sucesso: false, erro: error.message });
       }
     }
 
     const enviadas = resultados.filter((r) => r.sucesso).length;
     const falhas = resultados.filter((r) => !r.sucesso).length;
+
+    console.log('[BACKEND] Resultado final: enviadas:', enviadas, ', falhas:', falhas);
 
     return { enviadas, falhas, detalhes: resultados };
   }
