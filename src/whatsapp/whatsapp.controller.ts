@@ -196,6 +196,8 @@ export class WhatsAppController {
         body.mensagem,
         body.participantes,
         body.filtros,
+        body.mediaUrl,  // Passando mídia
+        body.mediaType, // Passando tipo
       );
 
       return {

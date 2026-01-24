@@ -307,6 +307,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     mensagem: string,
     participantes: Array<{ id_contato: string; nome?: string; [key: string]: any }>,
     filtros: { [key: string]: any },
+    mediaUrl?: string,
+    mediaType?: 'image' | 'video',
   ): Promise<{
     enviadas: number;
     falhas: number;
@@ -315,9 +317,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
      console.log('[BACKEND] enviarMensagemSegmentada chamado');
      console.log('[BACKEND] Total participantes recebidos:', participantes.length);
      console.log('[BACKEND] Filtros:', filtros);
-     console.log('[BACKEND] WhatsApp status:', this.status);
-     console.log('[BACKEND] Socket presente:', !!this.socket);
-
+     
      if (!this.socket || this.status !== WhatsAppStatus.READY) {
       const erro = 'WhatsApp não está conectado. Status: ' + this.status;
       console.error('[BACKEND] ERRO:', erro);
@@ -326,7 +326,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     const participantesFiltrados = this.filterParticipants(participantes, filtros);
     console.log('[BACKEND] Participantes após filtro:', participantesFiltrados.length);
-    console.log('[BACKEND] Primeiros 3 participantes filtrados:', participantesFiltrados.slice(0, 3));
     
     if (participantesFiltrados.length === 0) {
       console.error('[BACKEND] Nenhum participante passou pelos filtros!');
@@ -348,7 +347,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         let phoneSearch = participante.id_contato.replace(/\D/g, '');
         
         // Se for BR e tiver 12 ou 13 dígitos (55 + DDD + 9 + numero), vamos tentar validar
-        // A função onWhatsApp do Baileys lida bem com variações se passarmos o formato internacional sem +
         if (!phoneSearch.startsWith('55') && phoneSearch.length >= 10 && phoneSearch.length <= 11) {
              phoneSearch = '55' + phoneSearch;
         }
@@ -359,7 +357,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         let jidEnvio = '';
 
         try {
-            // Verifica se o número existe no WhatsApp e pega o JID correto (lida com o 9º dígito automaticamente)
             const results = await this.socket.onWhatsApp(phoneSearch);
             const result = results && results.length > 0 ? results[0] : null;
 
@@ -368,20 +365,35 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
                 console.log(`[BACKEND] Número validado: ${phoneSearch} -> JID: ${jidEnvio}`);
             } else {
                  console.log(`[BACKEND] ⚠️ Número não encontrado no WhatsApp: ${phoneSearch}. Tentando envio direto como fallback...`);
-                 // Fallback: Tenta montar manualmente se a validação falhar (ex: instabilidade)
                  jidEnvio = phoneSearch.includes('@') ? phoneSearch : `${phoneSearch}@s.whatsapp.net`;
                  if (jidEnvio.includes('@c.us')) jidEnvio = jidEnvio.replace('@c.us', '@s.whatsapp.net');
             }
         } catch (err) {
             console.error(`[BACKEND] Erro ao validar número ${phoneSearch}:`, err);
-            // Fallback em caso de erro na checagem
             jidEnvio = phoneSearch.includes('@') ? phoneSearch : `${phoneSearch}@s.whatsapp.net`;
             if (jidEnvio.includes('@c.us')) jidEnvio = jidEnvio.replace('@c.us', '@s.whatsapp.net');
         }
 
         console.log('[BACKEND] Enviando mensagem final para:', jidEnvio);
 
-        await this.socket.sendMessage(jidEnvio, { text: mensagemPersonalizada });
+        let payload: any = { text: mensagemPersonalizada };
+
+        if (mediaUrl && mediaType) {
+            console.log(`[BACKEND] Anexando mídia: ${mediaType} - ${mediaUrl}`);
+            if (mediaType === 'image') {
+                payload = {
+                    image: { url: mediaUrl },
+                    caption: mensagemPersonalizada
+                };
+            } else if (mediaType === 'video') {
+                payload = {
+                    video: { url: mediaUrl },
+                    caption: mensagemPersonalizada
+                };
+            }
+        }
+
+        await this.socket.sendMessage(jidEnvio, payload);
         console.log('[BACKEND] ✅ Mensagem enviada com sucesso para:', participante.id_contato);
         resultados.push({ contato: participante.id_contato, sucesso: true });
         
