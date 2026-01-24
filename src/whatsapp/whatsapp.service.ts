@@ -348,7 +348,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         let jid = participante.id_contato;
         console.log('[BACKEND] Enviando para:', jid);
         
-        if (jid.includes('@c.us')) jid = jid.replace('@c.us', '@s.whatsapp.net');
+        // Garantir formato JID correto do WhatsApp
+        if (!jid.includes('@')) {
+          // Se não tem @, adiciona o sufixo padrão
+          jid = `${jid}@s.whatsapp.net`;
+        } else if (jid.includes('@c.us')) {
+          // Se tem @c.us, converte para formato Baileys
+          jid = jid.replace('@c.us', '@s.whatsapp.net');
+        }
         
         console.log('[BACKEND] JID formatado:', jid);
         console.log('[BACKEND] Mensagem:', mensagemPersonalizada.substring(0, 50) + '...');
