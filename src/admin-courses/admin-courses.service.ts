@@ -155,44 +155,53 @@ export class AdminCoursesService {
       else {
         // Comportamento padrão: buscar todos os usuários E todas as inscrições em eventos
         // Isso garante que alunos que só se inscreveram em eventos (e não criaram conta) também apareçam
+        console.log('[DEBUG] Buscando TODOS os usuários e registrações (sem filtro de curso/evento)');
+        
+        try {
+          const [dbUsers, dbRegistrations] = await Promise.all([
+            this.prisma.user.findMany({
+              where: {
+                ...where,
+                phone: { not: null }, // Só queremos quem tem telefone
+              },
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                city: true,
+                state: true,
+                participantType: true,
+              },
+              orderBy: { name: 'asc' },
+            }),
+            this.prisma.registration.findMany({
+               where: {
+                 // Reutilizar os mesmos filtros de cidade/estado/tipo
+                 ...where,
+                 phone: { not: null }
+               },
+               select: {
+                 id: true,
+                 name: true,
+                 email: true,
+                 phone: true,
+                 city: true,
+                 state: true,
+                 participantType: true,
+               }
+            })
+          ]);
 
-        const [dbUsers, dbRegistrations] = await Promise.all([
-          this.prisma.user.findMany({
-            where: {
-              ...where,
-              phone: { not: null }, // Só queremos quem tem telefone
-            },
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-              city: true,
-              state: true,
-              participantType: true,
-            },
-            orderBy: { name: 'asc' },
-          }),
-          this.prisma.registration.findMany({
-             where: {
-               // Reutilizar os mesmos filtros de cidade/estado/tipo
-               ...where,
-               phone: { not: null }
-             },
-             select: {
-               id: true,
-               name: true,
-               email: true,
-               phone: true,
-               city: true,
-               state: true,
-               participantType: true,
-             }
-          })
-        ]);
+          console.log('[DEBUG] Usuários encontrados:', dbUsers.length);
+          console.log('[DEBUG] Registrações encontradas:', dbRegistrations.length);
 
-        // Combinar ambas as listas
-        users = [...dbUsers, ...dbRegistrations];
+          // Combinar ambas as listas
+          users = [...dbUsers, ...dbRegistrations];
+        } catch (dbError) {
+          console.error('[DEBUG] Erro ao buscar usuários/registrações:', dbError);
+          throw dbError;
+        }
       }
 
       // Processar e normalizar
