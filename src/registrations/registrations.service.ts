@@ -25,12 +25,16 @@ export class RegistrationsService {
     pondCount?: number;
     waterArea?: number;
   }) {
-    const existingRegistration = await this.prisma.registration.findUnique({
-      where: { cpf: data.cpf },
+    // Verificar se já existe inscrição PARA ESTE EVENTO com este CPF
+    const existingRegistration = await this.prisma.registration.findFirst({
+      where: { 
+        cpf: data.cpf,
+        eventId: data.eventId
+      },
     });
 
     if (existingRegistration) {
-      throw new Error('CPF já cadastrado');
+      throw new Error('CPF já cadastrado neste evento');
     }
 
     let municipalityLimit = await this.prisma.municipalityLimit.findFirst({
@@ -110,6 +114,65 @@ export class RegistrationsService {
         status: 'CONFIRMED',
       },
     });
+
+    return registration;
+  }
+
+  // Novo método para buscar dados de cadastro anterior pelo CPF
+  async findByCpf(cpf: string) {
+    // Busca o registro mais recente com este CPF
+    const registration = await this.prisma.registration.findFirst({
+      where: { cpf },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        name: true,
+        email: true,
+        phone: true,
+        cep: true,
+        state: true,
+        city: true,
+        locality: true,
+        participantType: true,
+        otherType: true,
+        pondCount: true,
+        waterArea: true,
+      }
+    });
+
+    // Se não achar em registrations, tenta em users
+    if (!registration) {
+      const user = await this.prisma.user.findFirst({
+        where: { cpf },
+         select: {
+            name: true,
+            email: true,
+            phone: true,
+            state: true,
+            city: true,
+            participantType: true,
+            hectares: true,
+            waterArea: true,
+            ponds: true,
+         }
+      });
+      
+      if (user) {
+          return {
+              name: user.name,
+              email: user.email,
+              phone: user.phone,
+              state: user.state,
+              city: user.city,
+              participantType: user.participantType,
+              pondCount: user.ponds,
+              waterArea: user.waterArea,
+              // Campos default que o user não tem
+              cep: '',
+              locality: '',
+          }
+      }
+      return null;
+    }
 
     return registration;
   }

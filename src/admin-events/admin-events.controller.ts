@@ -61,7 +61,11 @@ export class AdminEventsController {
   async exportRegistrations(
     @Param('eventId') eventId: string,
     @Query('format') format: string | undefined,
-    @Query('fields') fields: string | string[] | undefined,
+    @Query('classId') classId: string | undefined,
+    @Query('municipalityId') municipalityId: string | undefined,
+    @Query('city') city: string | undefined, // NEW
+    @Query('state') state: string | undefined, // NEW
+    @Query('fields') fields: string | undefined,
     @Req() req: any & { res?: Response },
   ) {
     const fieldsArray =
@@ -74,6 +78,10 @@ export class AdminEventsController {
       req.user.role,
       format,
       fieldsArray,
+      classId,
+      municipalityId,
+      city,
+      state,
     );
 
     const res = req.res as Response;

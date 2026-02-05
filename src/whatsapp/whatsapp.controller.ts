@@ -23,6 +23,8 @@ interface CriarGrupoFiltradoDto {
 
 interface EnviarMensagemSegmentadaDto {
   mensagem: string;
+  mediaUrl?: string; // Opcional: URL da imagem ou vídeo
+  mediaType?: 'image' | 'video'; // Opcional: Tipo da mídia
   participantes: Array<{
     id_contato: string;
     [key: string]: any;

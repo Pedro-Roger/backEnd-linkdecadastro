@@ -275,6 +275,10 @@ export class AdminEventsService {
     userRole: string | undefined,
     formatParam?: string,
     fieldsParam?: string[],
+    classId?: string,
+    municipalityId?: string,
+    city?: string,
+    state?: string,
   ) {
     this.assertAdmin(userRole);
 
@@ -289,8 +293,38 @@ export class AdminEventsService {
       throw new NotFoundException('Evento não encontrado');
     }
 
+    const whereClause: any = { eventId };
+    let filenameSuffix = '';
+
+    if (classId) {
+       whereClause.municipalityClassId = classId;
+       // Tentar buscar info da turma para nome do arquivo (opcional, mas bom)
+       const classInfo = await this.prisma.municipalityClass.findUnique({
+           where: { id: classId },
+           include: { municipalityLimit: true }
+       });
+       if (classInfo) {
+           filenameSuffix = `-${classInfo.municipalityLimit.municipality}-turma-${classInfo.classNumber}`;
+       }
+    } else if (municipalityId) {
+       whereClause.municipalityId = municipalityId;
+       const munLimit = await this.prisma.municipalityLimit.findUnique({
+           where: { id: municipalityId }
+       });
+       if (munLimit) {
+           filenameSuffix = `-${munLimit.municipality}-${munLimit.state}`;
+       }
+    } else if (city) {
+       // Filtro por nome da cidade (case insensitive seria ideal, mas Prisma mongo tem limitações as vezes, vamos de exato por enquanto ou mode insensitive)
+       whereClause.city = { equals: city, mode: 'insensitive' };
+       if (state) {
+           whereClause.state = { equals: state, mode: 'insensitive' };
+       }
+       filenameSuffix = `-${city}-${state || ''}`;
+    }
+
     const registrations = await this.prisma.registration.findMany({
-      where: { eventId },
+      where: whereClause,
       include: {
         municipality: {
           select: {
@@ -304,7 +338,10 @@ export class AdminEventsService {
           },
         },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [
+          { city: 'asc' },
+          { name: 'asc' }
+      ],
     });
 
     const participantTypeLabels: Record<ParticipantType, string> = {
@@ -372,9 +409,9 @@ export class AdminEventsService {
         label: 'Quantidade de Viveiros',
         getter: (r: any) => r.pondCount ?? '-',
       },
-      waterDepth: {
-        label: 'Lâmina d\'água (metros)',
-        getter: (r: any) => r.waterDepth ?? '-',
+      waterArea: {
+        label: 'Lâmina d\'água (ha)',
+        getter: (r: any) => r.waterArea ?? '-',
       },
       municipality: {
         label: 'Município',
@@ -429,17 +466,40 @@ export class AdminEventsService {
     const selectedFields = parseFields(fieldsParam);
 
     const headerRow = selectedFields.map((key) => availableFields[key].label);
-    const dataRows = registrations.map((registration, index) =>
-      selectedFields.map((key) => {
-        const value =
-          key === 'number'
-            ? index + 1
-            : availableFields[key].getter(registration);
-        return value === null || value === undefined ? '' : String(value);
-      }),
-    );
+    
+    // Construção das linhas de dados com agrupamento por cidade (para CSV/XLSX)
+    const dataRows: string[][] = [];
+    let currentCityCSV = '';
 
-    const sanitizedTitle = event.title
+    registrations.forEach((reg, index) => {
+        const regCity = (reg.city || 'INDADEFINIDA').toUpperCase();
+        
+        // Inserir separador de grupo se a cidade mudou
+        if (regCity !== currentCityCSV) {
+            currentCityCSV = regCity;
+            
+            // Adiciona linha em branco antes (exceto no primeiro)
+            if (dataRows.length > 0) {
+                dataRows.push(new Array(selectedFields.length).fill(''));
+            }
+            
+            // Adiciona cabeçalho do grupo
+            const groupRow = new Array(selectedFields.length).fill('');
+            groupRow[0] = `MUNICÍPIO: ${regCity}`;
+            dataRows.push(groupRow);
+        }
+
+        const row = selectedFields.map((key) => {
+            const value =
+            key === 'number'
+                ? index + 1
+                : availableFields[key].getter(reg);
+            return value === null || value === undefined ? '' : String(value);
+        });
+        dataRows.push(row);
+    });
+
+    const sanitizedTitle = (event.title + (filenameSuffix || ''))
       .replace(/[^a-z0-9]/gi, '-')
       .toLowerCase();
 
@@ -457,12 +517,32 @@ export class AdminEventsService {
       });
 
       doc.fontSize(16).text(`Relatório de Cadastros - ${event.title}`);
+      if (filenameSuffix) {
+          doc.fontSize(12).text(filenameSuffix.replace(/-/g, ' ').trim());
+      }
       doc.moveDown();
 
       if (registrations.length === 0) {
         doc.fontSize(12).text('Nenhum cadastro encontrado.');
       } else {
+        let currentCityPDF = '';
+        
         registrations.forEach((registration, index) => {
+          const regCity = (registration.city || 'INDADEFINIDA').toUpperCase();
+          
+          // Agrupamento visual no PDF
+          if (regCity !== currentCityPDF) {
+              currentCityPDF = regCity;
+              if (index > 0) doc.addPage(); // Nova página para cada cidade? Ou apenas destaque? 
+              // Melhor apenas destaque + espaço, addPage pode gastar muito papel.
+              // Mas se o usuário quer "separar", addPage é o mais garantido.
+              // Vou usar addPage se não for o primeiro, para separar bem.
+              else doc.moveDown(); 
+              
+              doc.font('Helvetica-Bold').fontSize(14).fillColor('#003366').text(`MUNICÍPIO: ${regCity}`);
+              doc.fillColor('black').moveDown(0.5);
+          }
+
           doc.fontSize(12).font('Helvetica-Bold').text(`Participante ${index + 1}`);
           doc.moveDown(0.2);
 
@@ -498,7 +578,9 @@ export class AdminEventsService {
 
     if (formatType === 'csv') {
       const csv = XLSX.utils.sheet_to_csv(worksheet, { FS: ';' });
-      const csvBuffer = Buffer.from(csv, 'utf-8');
+      // Adicionar BOM explicitamente para garantir acentuação no Excel
+      const csvBuffer = Buffer.concat([Buffer.from('\uFEFF'), Buffer.from(csv, 'utf-8')]);
+      
       return {
         buffer: csvBuffer,
         contentType: 'text/csv; charset=utf-8',

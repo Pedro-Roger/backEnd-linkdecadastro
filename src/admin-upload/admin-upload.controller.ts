@@ -59,14 +59,14 @@ export class AdminUploadController {
         file: Express.Multer.File,
         cb: FileFilterCallback,
       ) => {
-        if (!file.mimetype.startsWith('image/')) {
-          // Indica que o arquivo não é aceito; a mensagem de erro pode ser tratada em outro ponto
+        // Aceitar imagens e vídeos
+        if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/')) {
           return cb(null, false);
         }
         cb(null, true);
       },
       limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB
+        fileSize: 30 * 1024 * 1024, // 30MB para suportar vídeos curtos
       },
     }),
   )
@@ -76,14 +76,18 @@ export class AdminUploadController {
     }
 
     if (!file) {
-      throw new BadRequestException('Nenhum arquivo enviado');
+      throw new BadRequestException('Arquivo inválido ou não suportado (apenas imagens e vídeos até 30MB)');
     }
 
     const relativePath = `/uploads/banners/${file.filename}`;
+    
+    // Retornar também o tipo para facilitar o frontend
+    const type = file.mimetype.startsWith('video/') ? 'video' : 'image';
 
     return {
       url: relativePath,
       filename: file.filename,
+      type
     };
   }
 }

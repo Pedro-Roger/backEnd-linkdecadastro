@@ -146,7 +146,7 @@ model Registration {
 
   // Dados do formulário
   name            String
-  cpf             String          @unique
+  cpf             String
   phone           String
   email           String
   cep             String
@@ -167,6 +167,7 @@ model Registration {
   municipality      MunicipalityLimit? @relation(fields: [municipalityId], references: [id])
   municipalityClass MunicipalityClass? @relation(fields: [municipalityClassId], references: [id])
 
+  @@unique([eventId, cpf])
   @@map("registrations")
 }
 
