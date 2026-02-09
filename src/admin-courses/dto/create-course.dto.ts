@@ -22,7 +22,7 @@ class FirstLessonDto {
 
     @IsString()
     @IsOptional()
-    @Transform(({ value }) => (value === '' ? undefined : value))
+    @Transform(({ value }: { value: any }) => (value === '' ? undefined : value))
     description?: string;
 
     @IsString()
@@ -49,7 +49,7 @@ class RegionQuotaDto {
 
     @IsInt()
     @Min(0)
-    @Transform(({ value }) => {
+    @Transform(({ value }: { value: any }) => {
         if (value === '' || value === null) return 0;
         const parsed = Number(value);
         return isNaN(parsed) ? 0 : parsed;
@@ -59,7 +59,7 @@ class RegionQuotaDto {
     @IsInt()
     @Min(0)
     @IsOptional()
-    @Transform(({ value }) => {
+    @Transform(({ value }: { value: any }) => {
         if (value === '' || value === null) return 0;
         const parsed = Number(value);
         return isNaN(parsed) ? 0 : parsed;
@@ -74,13 +74,13 @@ export class CreateCourseDto {
 
     @IsString()
     @IsOptional()
-    @Transform(({ value }) => (value === '' ? undefined : value))
+    @Transform(({ value }: { value: any }) => (value === '' ? undefined : value))
     description?: string;
 
     @IsString()
     @IsOptional()
     @IsUrl()
-    @Transform(({ value }) => (value === '' ? undefined : value))
+    @Transform(({ value }: { value: any }) => (value === '' ? undefined : value))
     bannerUrl?: string;
 
     @IsString()
@@ -95,7 +95,7 @@ export class CreateCourseDto {
     @IsInt()
     @Min(0)
     @IsOptional()
-    @Transform(({ value }) => {
+    @Transform(({ value }: { value: any }) => {
         if (value === '' || value === null) return undefined;
         const parsed = Number(value);
         return isNaN(parsed) ? undefined : parsed;
@@ -104,7 +104,7 @@ export class CreateCourseDto {
 
     @IsBoolean()
     @IsOptional()
-    @Transform(({ value }) => {
+    @Transform(({ value }: { value: any }) => {
         if (value === 'true') return true;
         if (value === 'false') return false;
         if (value === '') return undefined;
@@ -115,7 +115,7 @@ export class CreateCourseDto {
     @IsInt()
     @Min(0)
     @IsOptional()
-    @Transform(({ value }) => {
+    @Transform(({ value }: { value: any }) => {
         if (value === '' || value === null) return 0;
         const parsed = Number(value);
         return isNaN(parsed) ? 0 : parsed;
@@ -124,7 +124,7 @@ export class CreateCourseDto {
 
     @IsBoolean()
     @IsOptional()
-    @Transform(({ value }) => {
+    @Transform(({ value }: { value: any }) => {
         if (value === 'true') return true;
         if (value === 'false') return false;
         if (value === '') return undefined;
@@ -134,7 +134,7 @@ export class CreateCourseDto {
 
     @IsBoolean()
     @IsOptional()
-    @Transform(({ value }) => {
+    @Transform(({ value }: { value: any }) => {
         if (value === 'true') return true;
         if (value === 'false') return false;
         if (value === '') return undefined;
@@ -145,7 +145,7 @@ export class CreateCourseDto {
     @IsInt()
     @Min(0)
     @IsOptional()
-    @Transform(({ value }) => {
+    @Transform(({ value }: { value: any }) => {
         if (value === '' || value === null) return undefined;
         const parsed = Number(value);
         return isNaN(parsed) ? undefined : parsed;
@@ -160,12 +160,12 @@ export class CreateCourseDto {
 
     @IsDateString()
     @IsOptional()
-    @Transform(({ value }) => (value === '' ? undefined : value))
+    @Transform(({ value }: { value: any }) => (value === '' ? undefined : value))
     startDate?: string;
 
     @IsDateString()
     @IsOptional()
-    @Transform(({ value }) => (value === '' ? undefined : value))
+    @Transform(({ value }: { value: any }) => (value === '' ? undefined : value))
     endDate?: string;
 
     @IsString()
@@ -173,7 +173,7 @@ export class CreateCourseDto {
     @Matches(/^[a-z0-9-]+$/, {
         message: 'URL personalizada deve conter apenas letras minúsculas, números e hífens',
     })
-    @Transform(({ value }) => (value === '' ? undefined : value))
+    @Transform(({ value }: { value: any }) => (value === '' ? undefined : value))
     slug?: string;
 
     @ValidateNested()

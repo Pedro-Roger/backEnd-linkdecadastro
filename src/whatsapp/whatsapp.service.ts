@@ -84,7 +84,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       this.socket.ev.on('creds.update', saveCreds);
 
       // Gerenciamento de conexão
-      this.socket.ev.on('connection.update', async (update) => {
+      this.socket.ev.on('connection.update', async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
@@ -121,9 +121,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             this.retryCount = 0;
             this.socket = null;
             // Opcional: limpar pasta de sessão automaticamente
-             if (existsSync(this.sessionPath)) {
-               rmSync(this.sessionPath, { recursive: true, force: true });
-             }
+            if (existsSync(this.sessionPath)) {
+              rmSync(this.sessionPath, { recursive: true, force: true });
+            }
           }
         } else if (connection === 'open') {
           console.log('✅ [WhatsApp Baileys] Conectado e autenticado!');
@@ -147,10 +147,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     if (!this.socket) {
       await this.initializeClient();
     }
-    
+
     // Pequeno delay para garantir que eventos assíncronos (como QR) sejam processados
     if (this.status === WhatsAppStatus.CONNECTING) {
-        await delay(1000);
+      await delay(1000);
     }
 
     return {
@@ -164,12 +164,12 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     if (!this.socket) {
       await this.initializeClient();
       // Aguardar socket conectar
-      await delay(2000); 
+      await delay(2000);
     }
-    
+
     // Se já estiver pronto, não precisa parear
     if (this.status === WhatsAppStatus.READY) {
-         throw new Error('WhatsApp já está conectado!');
+      throw new Error('WhatsApp já está conectado!');
     }
 
     if (!phoneNumber) {
@@ -183,25 +183,25 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     }
 
     console.log(`📱 [WhatsApp Baileys] Solicitando código de pareamento para: ${formattedPhone}`);
-    
+
     try {
-        // Importante: pairing code no Baileys requer que o socket esteja inicializado mas NÃO autenticado
-        const code = await this.socket!.requestPairingCode(formattedPhone);
-        console.log(`✅ [WhatsApp Baileys] Código gerado: ${code}`);
-        return code;
+      // Importante: pairing code no Baileys requer que o socket esteja inicializado mas NÃO autenticado
+      const code = await this.socket!.requestPairingCode(formattedPhone);
+      console.log(`✅ [WhatsApp Baileys] Código gerado: ${code}`);
+      return code;
     } catch (error: any) {
-        console.error('❌ [WhatsApp Baileys] Erro ao solicitar código:', error);
-        throw new Error(`Erro ao gerar código: ${error.message}`);
+      console.error('❌ [WhatsApp Baileys] Erro ao solicitar código:', error);
+      throw new Error(`Erro ao gerar código: ${error.message}`);
     }
   }
-  
+
   // Funções de filtro auxiliares mantidas iguais
   private filterParticipants(
-    participants: Array<{ id_contato: string; [key: string]: any }>,
+    participants: Array<{ id_contato: string;[key: string]: any }>,
     filters: { [key: string]: any },
-  ): Array<{ id_contato: string; [key: string]: any }> {
-     // ... (Lógica de filtro idêntica à original, omitida para brevidade se não mudou)
-     // Vou copiar a lógica exata do arquivo original para garantir compatibilidade
+  ): Array<{ id_contato: string;[key: string]: any }> {
+    // ... (Lógica de filtro idêntica à original, omitida para brevidade se não mudou)
+    // Vou copiar a lógica exata do arquivo original para garantir compatibilidade
     if (!filters || Object.keys(filters).length === 0) {
       return participants;
     }
@@ -211,7 +211,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       'city': 'cidade',
       'participantType': 'tipo',
       'type': 'tipo',
-      'role': 'role', 
+      'role': 'role',
       'course': 'cursos',
       'curso': 'cursos',
       'courses': 'cursos',
@@ -240,7 +240,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         if (participantValue === undefined) {
           const reverseKey = Object.keys(keyMap).find(k => keyMap[k] === key);
           if (reverseKey && participant[reverseKey] !== undefined) {
-             participantValue = participant[reverseKey];
+            participantValue = participant[reverseKey];
           }
         }
 
@@ -267,14 +267,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   async criarGrupoFiltrado(
     tituloGrupo: string,
-    participantes: Array<{ id_contato: string; [key: string]: any }>,
+    participantes: Array<{ id_contato: string;[key: string]: any }>,
     filtros: { [key: string]: any },
   ): Promise<{
     grupoId: string;
     participantesAdicionados: string[];
     totalFiltrados: number;
   }> {
-     if (!this.socket || this.status !== WhatsAppStatus.READY) {
+    if (!this.socket || this.status !== WhatsAppStatus.READY) {
       throw new Error('WhatsApp não está conectado. Status: ' + this.status);
     }
 
@@ -284,9 +284,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // Baileys usa formato JID (12345678@s.whatsapp.net) para usuários
     // Precisamos converter ids de contato se estiverem em formato diferente
     const contatosIds = participantesFiltrados.map((p) => {
-        let id = p.id_contato;
-        if (id.includes('@c.us')) id = id.replace('@c.us', '@s.whatsapp.net');
-        return id;
+      let id = p.id_contato;
+      if (id.includes('@c.us')) id = id.replace('@c.us', '@s.whatsapp.net');
+      return id;
     });
 
     try {
@@ -305,7 +305,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   async enviarMensagemSegmentada(
     mensagem: string,
-    participantes: Array<{ id_contato: string; nome?: string; [key: string]: any }>,
+    participantes: Array<{ id_contato: string; nome?: string;[key: string]: any }>,
     filtros: { [key: string]: any },
     mediaUrl?: string,
     mediaType?: 'image' | 'video',
@@ -314,11 +314,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     falhas: number;
     detalhes: Array<{ contato: string; sucesso: boolean; erro?: string }>;
   }> {
-     console.log('[BACKEND] enviarMensagemSegmentada chamado');
-     console.log('[BACKEND] Total participantes recebidos:', participantes.length);
-     console.log('[BACKEND] Filtros:', filtros);
-     
-     if (!this.socket || this.status !== WhatsAppStatus.READY) {
+    console.log('[BACKEND] enviarMensagemSegmentada chamado');
+    console.log('[BACKEND] Total participantes recebidos:', participantes.length);
+    console.log('[BACKEND] Filtros:', filtros);
+
+    if (!this.socket || this.status !== WhatsAppStatus.READY) {
       const erro = 'WhatsApp não está conectado. Status: ' + this.status;
       console.error('[BACKEND] ERRO:', erro);
       throw new Error(erro);
@@ -326,7 +326,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     const participantesFiltrados = this.filterParticipants(participantes, filtros);
     console.log('[BACKEND] Participantes após filtro:', participantesFiltrados.length);
-    
+
     if (participantesFiltrados.length === 0) {
       console.error('[BACKEND] Nenhum participante passou pelos filtros!');
       throw new Error('Nenhum participante atende aos filtros');
@@ -342,36 +342,36 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         } else {
           mensagemPersonalizada = mensagemPersonalizada.replace(/{nome}/g, '').replace(/Olá, !/g, 'Olá!').replace(/Olá, /g, 'Olá! ');
         }
-        
+
         // Formatar número para busca (apenas dígitos)
         let phoneSearch = participante.id_contato.replace(/\D/g, '');
-        
+
         // Se for BR e tiver 12 ou 13 dígitos (55 + DDD + 9 + numero), vamos tentar validar
         if (!phoneSearch.startsWith('55') && phoneSearch.length >= 10 && phoneSearch.length <= 11) {
-             phoneSearch = '55' + phoneSearch;
+          phoneSearch = '55' + phoneSearch;
         }
 
         console.log(`[BACKEND] Verificando existência do número: ${phoneSearch}`);
-        
+
         // JID para envio
         let jidEnvio = '';
 
         try {
-            const results = await this.socket.onWhatsApp(phoneSearch);
-            const result = results && results.length > 0 ? results[0] : null;
+          const results = await this.socket.onWhatsApp(phoneSearch);
+          const result = results && results.length > 0 ? results[0] : null;
 
-            if (result && result.exists) {
-                jidEnvio = result.jid;
-                console.log(`[BACKEND] Número validado: ${phoneSearch} -> JID: ${jidEnvio}`);
-            } else {
-                 console.log(`[BACKEND] ⚠️ Número não encontrado no WhatsApp: ${phoneSearch}. Tentando envio direto como fallback...`);
-                 jidEnvio = phoneSearch.includes('@') ? phoneSearch : `${phoneSearch}@s.whatsapp.net`;
-                 if (jidEnvio.includes('@c.us')) jidEnvio = jidEnvio.replace('@c.us', '@s.whatsapp.net');
-            }
-        } catch (err) {
-            console.error(`[BACKEND] Erro ao validar número ${phoneSearch}:`, err);
+          if (result && result.exists) {
+            jidEnvio = result.jid;
+            console.log(`[BACKEND] Número validado: ${phoneSearch} -> JID: ${jidEnvio}`);
+          } else {
+            console.log(`[BACKEND] ⚠️ Número não encontrado no WhatsApp: ${phoneSearch}. Tentando envio direto como fallback...`);
             jidEnvio = phoneSearch.includes('@') ? phoneSearch : `${phoneSearch}@s.whatsapp.net`;
             if (jidEnvio.includes('@c.us')) jidEnvio = jidEnvio.replace('@c.us', '@s.whatsapp.net');
+          }
+        } catch (err) {
+          console.error(`[BACKEND] Erro ao validar número ${phoneSearch}:`, err);
+          jidEnvio = phoneSearch.includes('@') ? phoneSearch : `${phoneSearch}@s.whatsapp.net`;
+          if (jidEnvio.includes('@c.us')) jidEnvio = jidEnvio.replace('@c.us', '@s.whatsapp.net');
         }
 
         console.log('[BACKEND] Enviando mensagem final para:', jidEnvio);
@@ -379,27 +379,27 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         let payload: any = { text: mensagemPersonalizada };
 
         if (mediaUrl && mediaType) {
-            console.log(`[BACKEND] Anexando mídia: ${mediaType} - ${mediaUrl}`);
-            if (mediaType === 'image') {
-                payload = {
-                    image: { url: mediaUrl },
-                    caption: mensagemPersonalizada
-                };
-            } else if (mediaType === 'video') {
-                payload = {
-                    video: { url: mediaUrl },
-                    caption: mensagemPersonalizada
-                };
-            }
+          console.log(`[BACKEND] Anexando mídia: ${mediaType} - ${mediaUrl}`);
+          if (mediaType === 'image') {
+            payload = {
+              image: { url: mediaUrl },
+              caption: mensagemPersonalizada
+            };
+          } else if (mediaType === 'video') {
+            payload = {
+              video: { url: mediaUrl },
+              caption: mensagemPersonalizada
+            };
+          }
         }
 
         await this.socket.sendMessage(jidEnvio, payload);
         console.log('[BACKEND] ✅ Mensagem enviada com sucesso para:', participante.id_contato);
         resultados.push({ contato: participante.id_contato, sucesso: true });
-        
+
         // Anti-ban delay (10 seconds)
         console.log('[BACKEND] Aguardando 10 segundos antes do próximo envio...');
-        await delay(10000); 
+        await delay(10000);
 
       } catch (error: any) {
         console.error('[BACKEND] ❌ Erro ao enviar para:', participante.id_contato, error.message);
@@ -416,7 +416,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async enviarMensagemGrupo(grupoId: string, mensagem: string): Promise<{ sucesso: boolean; mensagemId?: string; erro?: string }> {
-     if (!this.socket || this.status !== WhatsAppStatus.READY) {
+    if (!this.socket || this.status !== WhatsAppStatus.READY) {
       throw new Error('WhatsApp não está conectado. Status: ' + this.status);
     }
 
@@ -424,7 +424,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       // Garantir formato JID de grupo
       let chatId = grupoId;
       if (!chatId.includes('@g.us')) chatId = `${chatId}@g.us`;
-      
+
       const result = await this.socket.sendMessage(chatId, { text: mensagem });
 
       return { sucesso: true, mensagemId: result?.key?.id || undefined };
@@ -502,25 +502,25 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // Vamos priorizar Users se houver conflito de telefone? Ou listar tudo?
     // "noa misturar tudo" -> talvez manter separado? Mas "busca seja possivel fazer na tabela de registration igual em users"
     // Vou concatenar por enquanto. Se precisar desduplicar, podemos fazer um map por telefone.
-    
+
     // Melhor desduplicar por telefone para não enviar msg 2x pro mesmo numero
     const allParticipantsMap = new Map();
 
     [...mappedUsers, ...mappedRegistrations].forEach(p => {
-        if (!allParticipantsMap.has(p.id_contato)) {
-            allParticipantsMap.set(p.id_contato, p);
-        } else {
-            // Merge de informações se já existe?
-            // Ex: user tem cursos, registration tem eventos.
-            const existing = allParticipantsMap.get(p.id_contato);
-            if (p.eventos && p.eventos.length > 0) {
-                existing.eventos = [...(existing.eventos || []), ...p.eventos];
-            }
-            if (p.cursos && p.cursos.length > 0) {
-                existing.cursos = [...(existing.cursos || []), ...p.cursos];
-            }
-            // Atualizar tipo/role se necessário? Manter User priority (já garantido pela ordem se mappedUsers vier primeiro)
+      if (!allParticipantsMap.has(p.id_contato)) {
+        allParticipantsMap.set(p.id_contato, p);
+      } else {
+        // Merge de informações se já existe?
+        // Ex: user tem cursos, registration tem eventos.
+        const existing = allParticipantsMap.get(p.id_contato);
+        if (p.eventos && p.eventos.length > 0) {
+          existing.eventos = [...(existing.eventos || []), ...p.eventos];
         }
+        if (p.cursos && p.cursos.length > 0) {
+          existing.cursos = [...(existing.cursos || []), ...p.cursos];
+        }
+        // Atualizar tipo/role se necessário? Manter User priority (já garantido pela ordem se mappedUsers vier primeiro)
+      }
     });
 
     return Array.from(allParticipantsMap.values());

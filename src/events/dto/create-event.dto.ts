@@ -22,7 +22,7 @@ export class MunicipalityLimitDto {
 
     @IsInt()
     @Min(0)
-    @Transform(({ value }) => {
+    @Transform(({ value }: { value: any }) => {
         if (value === '' || value === null) return 0;
         const parsed = Number(value);
         return isNaN(parsed) ? 0 : parsed;
@@ -42,7 +42,7 @@ export class CreateEventDto {
     @IsString()
     @IsOptional()
     @IsUrl({}, { message: 'URL do banner inválida' })
-    @Transform(({ value }) => (value === '' ? undefined : value))
+    @Transform(({ value }: { value: any }) => (value === '' ? undefined : value))
     bannerUrl?: string;
 
     @IsString()
@@ -50,13 +50,13 @@ export class CreateEventDto {
     @Matches(/^[a-z0-9-]+$/, {
         message: 'URL personalizada deve conter apenas letras minúsculas, números e hífens',
     })
-    @Transform(({ value }) => (value === '' ? undefined : value))
+    @Transform(({ value }: { value: any }) => (value === '' ? undefined : value))
     slug?: string;
 
     @IsInt()
     @Min(0)
     @IsOptional()
-    @Transform(({ value }) => {
+    @Transform(({ value }: { value: any }) => {
         if (value === '' || value === null) return undefined;
         const parsed = Number(value);
         return isNaN(parsed) ? undefined : parsed;
