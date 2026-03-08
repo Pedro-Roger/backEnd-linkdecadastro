@@ -73,6 +73,8 @@ model User {
   comments      Comment[]
   notifications Notification[]
   progress      LessonProgress[]
+  chat_channel_members ChatChannelMember[]
+  chat_conversations ChatConversation[]
 
   @@map("users")
 }
@@ -354,4 +356,125 @@ model Notification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notifications")
+}
+
+model InstanceServer {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  name             String
+  url              String
+  api_key          String
+  status           String   @default("active")
+  max_instances    Int      @default(100)
+  active_instances Int      @default(0)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  chat_channels ChatChannel[]
+
+  @@map("instances_server")
+}
+
+model ChatChannel {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  company_id         String
+  provider           String
+  instance_server_id String?  @db.ObjectId
+  instance_name      String
+  name               String
+  status             String
+  phone_number       String?
+  settings           Json?
+  last_sync          DateTime?
+  is_notification_only Boolean @default(false)
+  
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  deleted_at DateTime?
+
+  instances_server      InstanceServer?       @relation(fields: [instance_server_id], references: [id])
+  chat_conversations    ChatConversation[]
+  chat_channel_members  ChatChannelMember[]
+
+  @@map("chat_channels")
+}
+
+model ChatChannelMember {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  channel_id String   @db.ObjectId
+  user_id    String   @db.ObjectId
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  deleted_at DateTime?
+
+  channels ChatChannel @relation(fields: [channel_id], references: [id])
+  users    User        @relation(fields: [user_id], references: [id])
+
+  @@map("chat_channel_members")
+}
+
+model ChatConversation {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  channel_id      String   @db.ObjectId
+  client_id       String?  // References an arbitrary client table if it exists
+  user_id         String?  @db.ObjectId
+  provider_uid    String
+  contact_name    String?
+  contact_number  String?
+  profile_pic_url String?
+  last_message    String?
+  last_message_at DateTime?
+  unread_count    Int      @default(0)
+  status          String   @default("OPEN")
+  is_archived     Boolean  @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  deleted_at DateTime?
+
+  channel ChatChannel @relation(fields: [channel_id], references: [id])
+  users   User?       @relation(fields: [user_id], references: [id])
+  messages ChatMessage[]
+
+  @@map("chat_conversations")
+}
+
+model ChatMessage {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  conversation_id String   @db.ObjectId
+  channel_id      String   @db.ObjectId
+  provider_msg_id String
+  direction       String
+  content_type    String   @default("text")
+  content         String?
+  media_url       String?
+  media_type      String?
+  file_size       Int?
+  mimetype        String?
+  sender_name     String?
+  status          String   @default("SENT")
+  sent_at         DateTime @default(now())
+  read_at         DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  conversation ChatConversation @relation(fields: [conversation_id], references: [id])
+
+  @@map("chat_messages")
+}
+
+model ChatQuickResponse {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  company_id String
+  title      String
+  content    String
+  shortcut   String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  deleted_at DateTime?
+
+  @@map("chat_quick_responses")
 }
