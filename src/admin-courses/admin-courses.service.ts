@@ -156,7 +156,7 @@ export class AdminCoursesService {
         // Comportamento padrão: buscar todos os usuários E todas as inscrições em eventos
         // Isso garante que alunos que só se inscreveram em eventos (e não criaram conta) também apareçam
         console.log('[DEBUG] Buscando TODOS os usuários e registrações (sem filtro de curso/evento)');
-        
+
         try {
           const [dbUsers, dbRegistrations] = await Promise.all([
             this.prisma.user.findMany({
@@ -176,20 +176,20 @@ export class AdminCoursesService {
               orderBy: { name: 'asc' },
             }),
             this.prisma.registration.findMany({
-               where: {
-                 // Reutilizar os mesmos filtros de cidade/estado/tipo
-                 ...where,
-                 phone: { not: null }
-               },
-               select: {
-                 id: true,
-                 name: true,
-                 email: true,
-                 phone: true,
-                 city: true,
-                 state: true,
-                 participantType: true,
-               }
+              where: {
+                // Reutilizar os mesmos filtros de cidade/estado/tipo
+                ...where,
+                phone: { not: '' }
+              },
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                city: true,
+                state: true,
+                participantType: true,
+              }
             })
           ]);
 

@@ -75,15 +75,14 @@ export class EvolutionApiService implements IChatProviderService {
       if (instanceServerId) {
         const instance = await this.instancesServerService.getInstanceById(instanceServerId);
         if (instance) {
-          apiUrl = instance.api_url;
-          apiToken = instance.api_token;
+          apiUrl = instance.url;
+          apiToken = instance.api_key;
         }
       } else {
-        // Fallback para uma instância disponível, se necessário, ou usar as padrão.
         const defaultInstance = await this.instancesServerService.getAvailableInstance('EVOLUTION');
         if (defaultInstance) {
-          apiUrl = defaultInstance.api_url;
-          apiToken = defaultInstance.api_token;
+          apiUrl = defaultInstance.url;
+          apiToken = defaultInstance.api_key;
         }
       }
     } catch (e) {
@@ -208,7 +207,7 @@ export class EvolutionApiService implements IChatProviderService {
         return response.data.qrcode.base64;
       }
 
-      return null;
+      return '';
     } catch (error) {
       this.logger.error(`Error getting QR code: ${error.message}`, error.stack);
       throw error;
@@ -380,7 +379,6 @@ export class EvolutionApiService implements IChatProviderService {
         error.stack,
       );
 
-      // Detecta erro de contato com LID (privacidade WhatsApp)
       const responseData = error.response?.data?.response;
       if (
         error.response?.status === 400 &&
@@ -442,13 +440,11 @@ export class EvolutionApiService implements IChatProviderService {
       let finalMimeType = mimetype;
 
       if (mediaUrl.startsWith('data:')) {
-        // Extrai o MIME type e remove o prefixo (Evolution API não suporta data:.. no payload base64 em algumas versões)
         const matches = mediaUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
         if (matches && matches.length === 3) {
           finalMimeType = matches[1];
           finalMedia = matches[2];
         } else {
-          // Fallback brutal
           finalMedia = mediaUrl.split(',')[1] || mediaUrl;
         }
       }
@@ -475,17 +471,16 @@ export class EvolutionApiService implements IChatProviderService {
       if (fileName) {
         payload.fileName = fileName;
       }
-      
+
       if (caption) {
         payload.caption = caption;
       }
 
-      // Limpa propriedades undefined/null para evitar 400/500 na Evolution API
       const cleanPayload = Object.fromEntries(
         Object.entries(payload).filter(([_, v]) => v !== undefined && v !== null && v !== '')
       );
-      
-      this.logger.log(`[SEND MEDIA DEBUG] to=${sanitizedNumber} | type=${mediaType} | mime=${finalMimeType} | file=${cleanPayload.fileName}`);
+
+      this.logger.log(`[SEND MEDIA DEBUG] to=${sanitizedNumber} | type=${mediaType} | mime=${finalMimeType}`);
 
       const response = await firstValueFrom(
         this.httpService.post(

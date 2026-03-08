@@ -1,8 +1,6 @@
 import { Controller, Post, Body, Logger, Inject, Param } from '@nestjs/common';
-import { IChatService } from '../../chat/services/chat.service';
-import { Services } from 'src/modules/shared/enum/services.enum';
-import { IQueueChatService } from 'src/modules/queue/provider/queue-chat.service';
-import { SQSMessageType } from 'src/modules/shared/enum/sqs.enum';
+import { Services } from '../chat.constants';
+import { ChatService } from '../services/chat.service';
 
 interface EvolutionWebhookPayload {
   event: string;
@@ -19,9 +17,7 @@ export class ChatWebhookController {
 
   constructor(
     @Inject(Services.CHAT_SERVICE)
-    private readonly chatService: IChatService,
-    @Inject(Services.QUEUE_CHAT_SERVICE)
-    private readonly queueChatService: IQueueChatService,
+    private readonly chatService: ChatService,
   ) {
   }
 
@@ -46,7 +42,6 @@ export class ChatWebhookController {
     type: string,
     payload: EvolutionWebhookPayload,
   ): Promise<{ received: boolean }> {
-    // Handle typos in type (like 'whastsapp' seen in logs)
     const normalizedType = type === 'whastsapp' ? 'whatsapp' : type;
 
     try {
@@ -57,8 +52,6 @@ export class ChatWebhookController {
         return { received: true };
       }
 
-      // For now, we only handle WhatsApp (Evolution API) logic
-      // If we add other types (Telegram, etc.), we would branch here
       if (normalizedType !== 'whatsapp') {
         this.logger.warn(
           `Webhook received for unsupported type: ${normalizedType}`,
@@ -79,7 +72,6 @@ export class ChatWebhookController {
 
         case 'MESSAGES_UPSERT':
         case 'messages.upsert': {
-          // Checagem rápida para ignorar grupos (@g.us) e poupar requisições pro SQS
           const messageData = data?.message || data;
           const key = messageData?.key || data?.key;
           const remoteJid = key?.remoteJid;
@@ -88,27 +80,11 @@ export class ChatWebhookController {
             break;
           }
 
-          await this.queueChatService.sendMessage({
-            type: SQSMessageType.CHAT_MESSAGE,
-            payload: {
-              instance,
-              data,
-              type: normalizedType,
-              // Campos extras do payload para resolução de LID (@lid → número real)
-              sender: payload.sender,
-              senderPn: (payload as any).senderPn || (data as any)?.senderPn,
-            },
-          });
+          // In this project, we don't have SQS yet. 
+          // We can handle the message directly or log it for now.
+          this.logger.log(`Message received for instance ${instance}: ${JSON.stringify(data)}`);
           break;
         }
-
-        case 'MESSAGES_UPDATE':
-        case 'messages.update':
-          // TODO: Update message status (read, delivered)
-          break;
-
-        case 'SEND_MESSAGE':
-          break;
 
         default:
         // Unhandled events
@@ -129,9 +105,9 @@ export class ChatWebhookController {
     data: any,
   ): Promise<void> {
     const rawState = data?.state || data?.status;
-    this.logger.log(`Connection update for ${instance}: ${rawState} (Full data: ${JSON.stringify(data)})`);
+    this.logger.log(`Connection update for ${instance}: ${rawState}`);
 
-    const statusMap = {
+    const statusMap: Record<string, string> = {
       open: 'connected',
       close: 'disconnected',
       connecting: 'connecting',
@@ -139,7 +115,9 @@ export class ChatWebhookController {
     };
 
     const status = statusMap[rawState] || 'disconnected';
-    await this.chatService.updateStatus(instance, status as any);
+    if ((this.chatService as any).updateStatus) {
+      await (this.chatService as any).updateStatus(instance, status as any);
+    }
   }
 
   private async handleQRCode(instance: string, data: any): Promise<void> {
@@ -148,11 +126,9 @@ export class ChatWebhookController {
     const qrCode = data?.qrcode?.base64 || data?.qrcode;
 
     if (qrCode && typeof qrCode === 'string') {
-      await this.chatService.updateQRCode(instance, qrCode);
-    } else {
-      this.logger.warn(
-        `Could not extract QR code from payload: ${JSON.stringify(data)}`,
-      );
+      if ((this.chatService as any).updateQRCode) {
+        await (this.chatService as any).updateQRCode(instance, qrCode);
+      }
     }
   }
 }

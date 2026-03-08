@@ -2,10 +2,11 @@ import { Injectable, Logger, NotFoundException, BadRequestException, Inject } fr
 import { v4 as uuidv4 } from 'uuid';
 import { ConnectInstanceResponseDto } from '../dto/connect-channel-response.dto';
 import { ChannelStatusDto } from '../dto/channel-status.dto';
-import { IChatRepository } from '../repository/chat.repository';
-import { IChatProviderService } from './evolution-api.service';
+import type { IChatRepository } from '../repository/chat.repository';
+import type { IChatProviderService } from './evolution-api.service';
 import { InstancesServerService } from './instances-server.service';
-import { ChatChannel, ChatMessage, QuickResponse } from '../entities/chat.entity';
+import { ChatChannel, ChatMessage } from '../entities/chat.entity';
+import { ChatConversationsQueryDto, PaginationQueryDto } from '../dto/pagination.dto';
 
 export interface PaginationDataDto<T> {
     page: number;
@@ -13,20 +14,6 @@ export interface PaginationDataDto<T> {
     total: number;
     totalPage: number;
     data: T[];
-}
-export interface ChatConversationsQueryDto {
-    channelId?: string;
-    search?: string;
-    unreadOnly?: boolean;
-    isArchived?: boolean;
-    assignedUserId?: string;
-    unassigned?: boolean;
-    page?: number;
-    limit?: number;
-}
-export interface PaginationQueryDto {
-    page?: number;
-    limit?: number;
 }
 
 @Injectable()
@@ -160,7 +147,7 @@ export class ChatService {
     }
 
     async getConversations(type: string, searchParams?: ChatConversationsQueryDto): Promise<PaginationDataDto<any>> {
-        const data = await this.repository.listConversations(searchParams?.channelId || [], searchParams);
+        const data = await this.repository.listConversations(searchParams?.channelId ? [searchParams.channelId] : [], searchParams);
         return { data: data[0], total: data[1], page: searchParams?.page || 1, limit: searchParams?.limit || 15, totalPage: Math.ceil(data[1] / (searchParams?.limit || 15)) };
     }
 
@@ -173,5 +160,15 @@ export class ChatService {
         const channel = channelId ? await this.repository.findById(channelId) : await this.repository.findByCompanyId('DEFAULT_COMPANY', this.getProviderByType(type));
         if (!channel) throw new NotFoundException('Channel not found');
         return await this.provider.sendMediaMessage(channel.instance_name, phoneNumber, mediaUrl, mediaType, fileName, caption, mimetype, channel.instance_server_id);
+    }
+
+    async updateStatus(instanceName: string, status: string) {
+        const channel = await this.repository.findByInstanceName(instanceName);
+        if (!channel) return;
+        await this.repository.update(channel.id, { status: status as any });
+    }
+
+    async updateQRCode(instanceName: string, qrCode: string) {
+        this.logger.log(`Updated QR Code for ${instanceName}`);
     }
 }
