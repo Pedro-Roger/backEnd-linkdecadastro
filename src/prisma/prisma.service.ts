@@ -17,5 +17,3 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
 
   // Exemplo de extensão futura (logs, soft delete, etc.)
 }
-
-

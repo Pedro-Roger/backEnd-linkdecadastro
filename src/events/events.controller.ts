@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { EventsService } from './events.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -7,10 +15,12 @@ import { CreateEventDto } from './dto/create-event.dto';
 export class EventsController {
   constructor(private readonly eventsService: EventsService) { }
 
+  @UseGuards(JwtAuthGuard)
   @Get()
   async listEvents(@Req() req: any) {
+    const userId = req.user?.id;
     const userRole = req.user?.role;
-    return this.eventsService.listEvents(userRole);
+    return this.eventsService.listEvents(userId, userRole);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -28,6 +38,9 @@ export class EventsController {
   async getEventBySlug(@Param('slug') slug: string) {
     return this.eventsService.getEventBySlug(slug);
   }
+
+  @Get('active')
+  async listActiveEvents() {
+    return this.eventsService.listEvents(undefined, undefined);
+  }
 }
-
-

@@ -6,14 +6,13 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   delay,
   WASocket,
-  AuthenticationState,
 } from '@whiskeysockets/baileys';
-import * as qrcodeTerminal from 'qrcode-terminal';
 import * as QRCode from 'qrcode';
 import { join } from 'path';
 import { existsSync, mkdirSync, rmSync } from 'fs';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
+import { AiChatService } from './ai-chat.service';
 
 export enum WhatsAppStatus {
   DISCONNECTED = 'DISCONNECTED',
@@ -29,20 +28,31 @@ interface QRCodeData {
   base64: string;
 }
 
+interface WhatsAppInstance {
+  socket: WASocket | null;
+  status: WhatsAppStatus;
+  qrCodeData: QRCodeData | null;
+  retryCount: number;
+  phoneNumber?: string;
+  chats: Map<string, any>;
+  contacts: Map<string, any>;
+}
+
 @Injectable()
 export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
-  private socket: WASocket | null = null;
-  private status: WhatsAppStatus = WhatsAppStatus.DISCONNECTED;
-  private qrCodeData: QRCodeData | null = null;
-  private sessionPath: string;
+  private instances: Map<string, WhatsAppInstance> = new Map();
+  private messages: Map<string, any[]> = new Map(); // sessionId:jid -> messages[]
+  private authBaseDir: string;
   private RETRY_INTERVAL = 5000;
   private MAX_RETRIES = 5;
-  private retryCount = 0;
 
-  constructor(private readonly prisma: PrismaService) {
-    this.sessionPath = join(process.cwd(), '.baileys_auth');
-    if (!existsSync(this.sessionPath)) {
-      mkdirSync(this.sessionPath, { recursive: true });
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly aiChatService: AiChatService
+  ) {
+    this.authBaseDir = join(process.cwd(), '.baileys_auth');
+    if (!existsSync(this.authBaseDir)) {
+      mkdirSync(this.authBaseDir, { recursive: true });
     }
   }
 
@@ -51,482 +61,561 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    if (this.socket) {
-      this.socket.end(undefined);
+    for (const [, instance] of this.instances) {
+      if (instance.socket) {
+        instance.socket.end(undefined);
+      }
     }
   }
 
-  async initializeClient() {
-    // Evitar múltiplas inicializações
-    if (this.status === WhatsAppStatus.CONNECTING || this.status === WhatsAppStatus.READY) {
+  private getInstance(sessionId: string): WhatsAppInstance {
+    if (!this.instances.has(sessionId)) {
+      this.instances.set(sessionId, {
+        socket: null,
+        status: WhatsAppStatus.DISCONNECTED,
+        qrCodeData: null,
+        retryCount: 0,
+        chats: new Map(),
+        contacts: new Map(),
+      });
+    }
+    return this.instances.get(sessionId)!;
+  }
+
+  private getSessionPath(sessionId: string): string {
+    const path = join(this.authBaseDir, sessionId);
+    if (!existsSync(path)) {
+      mkdirSync(path, { recursive: true });
+    }
+    return path;
+  }
+
+  async initializeClient(sessionId: string) {
+    const instance = this.getInstance(sessionId);
+    if (
+      instance.status === WhatsAppStatus.CONNECTING ||
+      instance.status === WhatsAppStatus.READY
+    ) {
       return;
     }
 
     try {
-      this.status = WhatsAppStatus.CONNECTING;
-      console.log('🔄 [WhatsApp Baileys] Inicializando cliente...');
-
-      const { state, saveCreds } = await useMultiFileAuthState(this.sessionPath);
+      instance.status = WhatsAppStatus.CONNECTING;
+      const sessionPath = this.getSessionPath(sessionId);
+      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
       const { version } = await fetchLatestBaileysVersion();
 
-      console.log(`ℹ️ [WhatsApp Baileys] Versão: ${version.join('.')}`);
-
-      this.socket = makeWASocket({
+      instance.socket = makeWASocket({
         version,
         logger: pino({ level: 'silent' }) as any,
-        printQRInTerminal: true, // Garante que o QR aparece no terminal se não usar pairing code
         auth: state,
         browser: ['LinkDeCadastro', 'Chrome', '1.0.0'],
         connectTimeoutMs: 60000,
       });
 
-      // Gerenciamento de credenciais
-      this.socket.ev.on('creds.update', saveCreds);
+      instance.socket.ev.on('creds.update', saveCreds);
 
-      // Gerenciamento de conexão
-      this.socket.ev.on('connection.update', async (update: any) => {
+      instance.socket.ev.on('messaging-history.set', ({ chats, contacts }) => {
+        chats.forEach(chat => { if (chat.id) instance.chats.set(chat.id, chat); });
+        contacts.forEach(contact => { if (contact.id) instance.contacts.set(contact.id, contact); });
+      });
+
+      instance.socket.ev.on('chats.upsert', (chats) => {
+        chats.forEach(chat => { if (chat.id) instance.chats.set(chat.id, chat); });
+      });
+
+      instance.socket.ev.on('chats.update', (updates) => {
+        updates.forEach(update => {
+          if (update.id) {
+            const chat = instance.chats.get(update.id);
+            if (chat) instance.chats.set(update.id, { ...chat, ...update });
+          }
+        });
+      });
+
+      instance.socket.ev.on('contacts.upsert', (contacts) => {
+        contacts.forEach(contact => { if (contact.id) instance.contacts.set(contact.id, contact); });
+      });
+
+      instance.socket.ev.on('connection.update', async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-          this.status = WhatsAppStatus.QR_CODE;
-          this.qrCodeData = {
+          instance.status = WhatsAppStatus.QR_CODE;
+          instance.qrCodeData = {
             qr,
             base64: await QRCode.toDataURL(qr),
           };
-          console.log('\n📱 [WhatsApp Baileys] QR Code gerado!');
-          // qrcodeTerminal.generate(qr, { small: true }); // makeWASocket já imprime se printQRInTerminal: true
         }
 
         if (connection === 'close') {
           const shouldReconnect =
-            (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-
-          console.log(
-            '⚠️ [WhatsApp Baileys] Conexão fechada devido a ',
-            lastDisconnect?.error,
-            ', reconectar: ',
-            shouldReconnect,
-          );
+            (lastDisconnect?.error as Boom)?.output?.statusCode !==
+            DisconnectReason.loggedOut;
 
           if (shouldReconnect) {
-            this.status = WhatsAppStatus.DISCONNECTED;
-            if (this.retryCount < this.MAX_RETRIES) {
-              this.retryCount++;
-              console.log(`🔄 [WhatsApp Baileys] Tentando reconectar (${this.retryCount}/${this.MAX_RETRIES})...`);
-              setTimeout(() => this.initializeClient(), this.RETRY_INTERVAL);
+            instance.status = WhatsAppStatus.DISCONNECTED;
+            if (instance.retryCount < this.MAX_RETRIES) {
+              instance.retryCount++;
+              setTimeout(() => this.initializeClient(sessionId), this.RETRY_INTERVAL);
             }
           } else {
-            console.log('❌ [WhatsApp Baileys] Desconectado permanentemente (Logout). Limpe a sessão para reconectar.');
-            this.status = WhatsAppStatus.DISCONNECTED;
-            this.retryCount = 0;
-            this.socket = null;
-            // Opcional: limpar pasta de sessão automaticamente
-            if (existsSync(this.sessionPath)) {
-              rmSync(this.sessionPath, { recursive: true, force: true });
+            instance.status = WhatsAppStatus.DISCONNECTED;
+            instance.retryCount = 0;
+            instance.socket = null;
+            if (existsSync(sessionPath)) {
+              rmSync(sessionPath, { recursive: true, force: true });
             }
           }
         } else if (connection === 'open') {
-          console.log('✅ [WhatsApp Baileys] Conectado e autenticado!');
-          this.status = WhatsAppStatus.READY;
-          this.qrCodeData = null;
-          this.retryCount = 0;
+          instance.status = WhatsAppStatus.READY;
+          instance.qrCodeData = null;
+          instance.retryCount = 0;
+
+          const user = instance.socket?.user;
+          if (user?.id) {
+            const phone = user.id.split(':')[0].split('@')[0];
+            instance.phoneNumber = phone;
+            await this.prisma.chatChannel.update({
+              where: { id: sessionId },
+              data: { phone_number: phone, status: 'READY' }
+            });
+          }
+        }
+      });
+
+      instance.socket.ev.on('messages.upsert', async (m) => {
+        if (m.type === 'notify') {
+          for (const msg of m.messages) {
+            if (msg.message) {
+              const remoteJid = msg.key.remoteJid;
+              if (!remoteJid) continue;
+
+              const textMessage = msg.message.conversation || msg.message.extendedTextMessage?.text;
+
+              if (textMessage) {
+                // Tenta pegar a foto de perfil se for nova conversa
+                let profilePicUrl = undefined;
+                try {
+                  if (!msg.key.fromMe && instance.socket) {
+                    profilePicUrl = await instance.socket.profilePictureUrl(remoteJid, 'image').catch(() => undefined);
+                  }
+                } catch (e) { }
+
+                await this.storeMessage(sessionId, remoteJid, {
+                  id: msg.key.id!,
+                  text: textMessage,
+                  sender: msg.key.fromMe ? 'me' : 'them',
+                  profilePicUrl
+                });
+              }
+
+              // IA Auto-reply (only if not from me)
+              if (!msg.key.fromMe && !remoteJid.includes('@g.us')) {
+                const phoneNumber = remoteJid.split('@')[0];
+                if (phoneNumber && textMessage && instance.socket) {
+                  try {
+                    const aiResponse = await this.aiChatService.consultarAssistente(textMessage, phoneNumber);
+                    if (aiResponse) {
+                      await instance.socket.sendMessage(remoteJid, { text: aiResponse });
+                    }
+                  } catch (err) {
+                    console.error('Erro ao processar mensagem com IA:', err);
+                  }
+                }
+              }
+            }
+          }
         }
       });
 
     } catch (error) {
-      console.error('❌ [WhatsApp Baileys] Erro fatal na inicialização:', error);
-      this.status = WhatsAppStatus.DISCONNECTED;
+      console.error(`❌ [WhatsApp] Erro na instância ${sessionId}:`, error);
+      instance.status = WhatsAppStatus.DISCONNECTED;
     }
   }
 
-  async getStatus(): Promise<{
-    status: WhatsAppStatus;
-    qrCode?: string;
-    qrCodeBase64?: string;
-  }> {
-    if (!this.socket) {
-      await this.initializeClient();
+  async logout(sessionId: string) {
+    const instance = this.instances.get(sessionId);
+    if (instance) {
+      if (instance.socket) {
+        try { await instance.socket.logout(); } catch (e) { }
+        instance.socket.end(undefined);
+      }
+      this.instances.delete(sessionId);
     }
-
-    // Pequeno delay para garantir que eventos assíncronos (como QR) sejam processados
-    if (this.status === WhatsAppStatus.CONNECTING) {
-      await delay(1000);
+    const sessionPath = this.getSessionPath(sessionId);
+    if (existsSync(sessionPath)) {
+      rmSync(sessionPath, { recursive: true, force: true });
     }
+    await this.prisma.chatChannel.update({
+      where: { id: sessionId },
+      data: { status: 'DISCONNECTED', phone_number: null }
+    });
+  }
 
+  async getStatus(sessionId: string) {
+    const instance = this.getInstance(sessionId);
+    if (!instance.socket) {
+      await this.initializeClient(sessionId);
+    }
     return {
-      status: this.status,
-      qrCode: this.qrCodeData?.qr,
-      qrCodeBase64: this.qrCodeData?.base64,
+      status: instance.status,
+      qrCode: instance.qrCodeData?.qr,
+      qrCodeBase64: instance.qrCodeData?.base64,
     };
   }
 
-  async requestPairingCode(phoneNumber: string): Promise<string> {
-    if (!this.socket) {
-      await this.initializeClient();
-      // Aguardar socket conectar
+  async listUserSessions(userId: string) {
+    const members = await this.prisma.chatChannelMember.findMany({
+      where: { user_id: userId },
+      include: { channels: true }
+    });
+    return members.map(m => m.channels);
+  }
+
+  async createSession(userId: string, name: string) {
+    const channel = await this.prisma.chatChannel.create({
+      data: {
+        company_id: 'default',
+        provider: 'baileys',
+        instance_name: name,
+        name: name,
+        status: 'DISCONNECTED',
+      }
+    });
+    await this.prisma.chatChannelMember.create({
+      data: {
+        channel_id: channel.id,
+        user_id: userId
+      }
+    });
+    return channel;
+  }
+
+  async requestPairingCode(sessionId: string, phoneNumber: string) {
+    const instance = this.getInstance(sessionId);
+    if (!instance.socket) {
+      await this.initializeClient(sessionId);
       await delay(2000);
     }
-
-    // Se já estiver pronto, não precisa parear
-    if (this.status === WhatsAppStatus.READY) {
+    if (instance.status === WhatsAppStatus.READY) {
       throw new Error('WhatsApp já está conectado!');
     }
-
-    if (!phoneNumber) {
-      throw new Error('Número de telefone é obrigatório');
-    }
-
-    // Formatar número
     let formattedPhone = phoneNumber.replace(/\D/g, '');
     if (formattedPhone.length >= 10 && formattedPhone.length <= 11) {
       formattedPhone = '55' + formattedPhone;
     }
-
-    console.log(`📱 [WhatsApp Baileys] Solicitando código de pareamento para: ${formattedPhone}`);
-
-    try {
-      // Importante: pairing code no Baileys requer que o socket esteja inicializado mas NÃO autenticado
-      const code = await this.socket!.requestPairingCode(formattedPhone);
-      console.log(`✅ [WhatsApp Baileys] Código gerado: ${code}`);
-      return code;
-    } catch (error: any) {
-      console.error('❌ [WhatsApp Baileys] Erro ao solicitar código:', error);
-      throw new Error(`Erro ao gerar código: ${error.message}`);
-    }
+    return await instance.socket!.requestPairingCode(formattedPhone);
   }
 
-  // Funções de filtro auxiliares mantidas iguais
-  private filterParticipants(
-    participants: Array<{ id_contato: string;[key: string]: any }>,
-    filters: { [key: string]: any },
-  ): Array<{ id_contato: string;[key: string]: any }> {
-    // ... (Lógica de filtro idêntica à original, omitida para brevidade se não mudou)
-    // Vou copiar a lógica exata do arquivo original para garantir compatibilidade
-    if (!filters || Object.keys(filters).length === 0) {
-      return participants;
-    }
+  private filterParticipants(participants: any[], filters: any) {
+    if (!filters || Object.keys(filters).length === 0) return participants;
+    const keyMap: any = { state: 'estado', city: 'cidade', participantType: 'tipo', curso: 'cursos', evento: 'eventos' };
+    return participants.filter(p => {
+      return Object.keys(filters).every(key => {
+        const fVal = filters[key];
+        if (!fVal || fVal === 'all') return true;
+        let pVal = p[key] || p[keyMap[key]];
+        if (pVal === undefined) return false;
 
-    const keyMap: { [key: string]: string } = {
-      'state': 'estado',
-      'city': 'cidade',
-      'participantType': 'tipo',
-      'type': 'tipo',
-      'role': 'role',
-      'course': 'cursos',
-      'curso': 'cursos',
-      'courses': 'cursos',
-      'event': 'eventos',
-      'evento': 'eventos',
-      'events': 'eventos',
-      'eventos': 'eventos',
-      'estado': 'state',
-      'cidade': 'city',
-      'tipo': 'participantType',
-    };
-
-    return participants.filter((participant) => {
-      return Object.keys(filters).every((key) => {
-        const filterValue = filters[key];
-        if (filterValue === null || filterValue === undefined || filterValue === '' || filterValue === 'Todos') return true;
-
-        if ((key === 'type' || key === 'tipo') && typeof filterValue === 'string' && ['curso', 'evento', 'course', 'event'].includes(filterValue.toLowerCase())) {
-          return true;
+        if (Array.isArray(pVal)) {
+          return pVal.some(item => String(item).toLowerCase().includes(String(fVal).toLowerCase()));
         }
 
-        let participantValue = participant[key];
-        if (participantValue === undefined && keyMap[key]) {
-          participantValue = participant[keyMap[key]];
-        }
-        if (participantValue === undefined) {
-          const reverseKey = Object.keys(keyMap).find(k => keyMap[k] === key);
-          if (reverseKey && participant[reverseKey] !== undefined) {
-            participantValue = participant[reverseKey];
-          }
-        }
-
-        if (participantValue === undefined) return false;
-
-        if (Array.isArray(participantValue)) {
-          if (typeof filterValue === 'string') {
-            const fValStr = filterValue.toLowerCase().trim();
-            return participantValue.some(pVal => String(pVal).toLowerCase().trim() === fValStr || String(pVal).toLowerCase().trim().includes(fValStr));
-          }
-        }
-
-        if (typeof filterValue === 'boolean' || typeof filterValue === 'number') return participantValue === filterValue;
-
-        if (typeof filterValue === 'string') {
-          const pValStr = String(participantValue).toLowerCase().trim();
-          const fValStr = filterValue.toLowerCase().trim();
-          return pValStr === fValStr || pValStr.includes(fValStr);
-        }
-        return participantValue == filterValue;
+        return String(pVal).toLowerCase().includes(String(fVal).toLowerCase());
       });
     });
   }
 
-  async criarGrupoFiltrado(
-    tituloGrupo: string,
-    participantes: Array<{ id_contato: string;[key: string]: any }>,
-    filtros: { [key: string]: any },
-  ): Promise<{
-    grupoId: string;
-    participantesAdicionados: string[];
-    totalFiltrados: number;
-  }> {
-    if (!this.socket || this.status !== WhatsAppStatus.READY) {
-      throw new Error('WhatsApp não está conectado. Status: ' + this.status);
+  async enviarMensagemSegmentada(sessionId: string, mensagem: string, participantes: any[], filtros: any, mediaUrl?: string, mediaType?: any) {
+    const instance = this.getInstance(sessionId);
+    if (!instance.socket || instance.status !== WhatsAppStatus.READY) {
+      throw new Error('WhatsApp não está conectado');
     }
+    // Usa os participantes que vieram do frontend, pois lá a seleção manual e os filtros já foram aplicados e decididos pelo Admin.
+    const filtrados = participantes;
+    const resultados = [];
+    for (const p of filtrados) {
+      try {
+        let phone = p.id_contato.replace(/\D/g, '');
+        if (phone.startsWith('0')) phone = phone.substring(1);
 
-    const participantesFiltrados = this.filterParticipants(participantes, filtros);
-    if (participantesFiltrados.length === 0) throw new Error('Nenhum participante atende aos critérios');
+        // Remove 9th digit for Brazil if it has 11 digits (DD9XXXXXXXX)
+        if (phone.length === 11 && phone[2] === '9') {
+          phone = phone.substring(0, 2) + phone.substring(3);
+        }
 
-    // Baileys usa formato JID (12345678@s.whatsapp.net) para usuários
-    // Precisamos converter ids de contato se estiverem em formato diferente
-    const contatosIds = participantesFiltrados.map((p) => {
-      let id = p.id_contato;
-      if (id.includes('@c.us')) id = id.replace('@c.us', '@s.whatsapp.net');
-      return id;
+        if (phone.length === 10 || phone.length === 11) {
+          if (!phone.startsWith('55')) phone = '55' + phone;
+        }
+        const targetJid = `${phone}@s.whatsapp.net`;
+        let payload: any = { text: mensagem.replace(/{nome}/g, p.nome || '') };
+        if (mediaUrl) {
+          if (mediaType === 'image') payload = { image: { url: mediaUrl }, caption: payload.text };
+          else if (mediaType === 'video') payload = { video: { url: mediaUrl }, caption: payload.text };
+        }
+        await instance.socket.sendMessage(targetJid, payload);
+        resultados.push({ contato: p.id_contato, sucesso: true });
+        await delay(3000);
+      } catch (err: any) {
+        resultados.push({ contato: p.id_contato, sucesso: false, erro: err.message });
+      }
+    }
+    return { enviadas: resultados.filter(r => r.sucesso).length, falhas: resultados.filter(r => !r.sucesso).length, detalhes: resultados };
+  }
+
+  async getRecentChats(sessionId: string) {
+    const instance = this.instances.get(sessionId);
+    if (!instance) return [];
+
+    const chats = Array.from(instance.chats.values()).map(chat => {
+      const contact = instance.contacts.get(chat.id);
+      return {
+        id: chat.id,
+        jid: chat.id,
+        name: contact?.name || contact?.notify || contact?.verifiedName || chat.id.split('@')[0],
+        lastMessage: 'Mensagem do WhatsApp',
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(chat.id)}&background=random`,
+        type: chat.id.includes('@g.us') ? 'group' : 'person',
+        unreadCount: chat.unreadCount || 0,
+      };
     });
 
-    try {
-      const groupData = await this.socket.groupCreate(tituloGrupo, contatosIds);
-      const grupoId = groupData.id;
+    return chats;
+  }
 
-      return {
-        grupoId,
-        participantesAdicionados: contatosIds,
-        totalFiltrados: participantesFiltrados.length,
-      };
+  async createGroup(sessionId: string, name: string, participants: string[]) {
+    const instance = this.instances.get(sessionId);
+    if (!instance?.socket || instance.status !== WhatsAppStatus.READY) throw new Error('WhatsApp não conectado');
+
+    const ownerPhone = instance.phoneNumber;
+    const ownerJid = ownerPhone ? `${ownerPhone}@s.whatsapp.net` : null;
+
+    // Remove duplicates, ensure JIDs are valid and remove the owner (added automatically)
+    const uniqueParticipants = [...new Set(participants)]
+      .map(p => {
+        let jid = p.includes('@') ? p : `${p.replace(/\D/g, '')}@s.whatsapp.net`;
+        if (!jid.includes(':') && jid.includes('@s.whatsapp.net') && !jid.startsWith('55') && jid.split('@')[0].length <= 11) {
+          // Fallback for missing country code if not present
+          // But normally frontend already adds it.
+        }
+        return jid;
+      })
+      .filter(p => p !== ownerJid && p !== instance.socket?.user?.id);
+
+    if (uniqueParticipants.length === 0) {
+      throw new Error('Selecione pelo menos um participante (que não seja você mesmo).');
+    }
+
+    // WhatsApp group name limit is usually 25 chars for some older clients, or 100 for newer.
+    // Let's truncate to 25 to be safe or at least log it.
+    const safeName = name.substring(0, 25);
+
+    console.log(`[WhatsApp] Criando grupo "${safeName}" com ${uniqueParticipants.length} participantes. Sessão: ${sessionId}`);
+    console.log(`[WhatsApp] Participantes:`, uniqueParticipants);
+
+    try {
+      const group = await instance.socket.groupCreate(safeName, uniqueParticipants);
+      return { success: true, group };
     } catch (error: any) {
-      throw new Error(`Erro ao criar grupo: ${error.message}`);
+      console.error('[WhatsApp] Erro ao criar grupo:', error);
+      // Detailed error if possible
+      const errorMessage = error.message || 'Erro desconhecido no Baileys';
+      throw new Error(`Erro ao criar grupo: ${errorMessage}`);
     }
   }
 
-  async enviarMensagemSegmentada(
-    mensagem: string,
-    participantes: Array<{ id_contato: string; nome?: string;[key: string]: any }>,
-    filtros: { [key: string]: any },
-    mediaUrl?: string,
-    mediaType?: 'image' | 'video',
-  ): Promise<{
-    enviadas: number;
-    falhas: number;
-    detalhes: Array<{ contato: string; sucesso: boolean; erro?: string }>;
-  }> {
-    console.log('[BACKEND] enviarMensagemSegmentada chamado');
-    console.log('[BACKEND] Total participantes recebidos:', participantes.length);
-    console.log('[BACKEND] Filtros:', filtros);
+  async getGroups(sessionId: string) {
+    const instance = this.getInstance(sessionId);
+    if (!instance.socket || instance.status !== WhatsAppStatus.READY) throw new Error('WhatsApp não conectado');
+    const groups = await (instance.socket as any).groupFetchAllFull();
+    return Object.values(groups).map((g: any) => ({ id: g.id, name: g.subject, participants: g.participants?.length || 0 }));
+  }
 
-    if (!this.socket || this.status !== WhatsAppStatus.READY) {
-      const erro = 'WhatsApp não está conectado. Status: ' + this.status;
-      console.error('[BACKEND] ERRO:', erro);
-      throw new Error(erro);
+  async enviarMensagemDireta(sessionId: string, jid: string, mensagem: string) {
+    const instance = this.instances.get(sessionId);
+    if (!instance?.socket || instance.status !== WhatsAppStatus.READY) throw new Error('WhatsApp não conectado');
+
+    let target = jid.includes('@') ? jid : jid.replace(/\D/g, '');
+    if (!target.includes('@')) {
+      if (target.startsWith('0')) target = target.substring(1);
+
+      // Remove 9th digit for Brazil
+      if (target.length === 11 && target[2] === '9') {
+        target = target.substring(0, 2) + target.substring(3);
+      }
+
+      if ((target.length === 10 || target.length === 11) && !target.startsWith('55')) {
+        target = '55' + target;
+      }
+      target = `${target}@s.whatsapp.net`;
     }
+    const result = await instance.socket.sendMessage(target, { text: mensagem });
 
-    const participantesFiltrados = this.filterParticipants(participantes, filtros);
-    console.log('[BACKEND] Participantes após filtro:', participantesFiltrados.length);
+    await this.storeMessage(sessionId, target, {
+      id: result?.key?.id || Date.now().toString(),
+      text: mensagem,
+      sender: 'me'
+    });
 
-    if (participantesFiltrados.length === 0) {
-      console.error('[BACKEND] Nenhum participante passou pelos filtros!');
-      throw new Error('Nenhum participante atende aos filtros');
-    }
+    return { success: true, messageId: result?.key?.id };
+  }
 
-    const resultados: any[] = [];
+  /**
+   * Envia uma mensagem para um número usando a primeira instância disponível que esteja READY.
+   */
+  async sendMessageToPhone(phone: string, text: string) {
+    let readyInstance: WhatsAppInstance | null = null;
 
-    for (const participante of participantesFiltrados) {
-      try {
-        let mensagemPersonalizada = mensagem;
-        if (participante.nome) {
-          mensagemPersonalizada = mensagemPersonalizada.replace(/{nome}/g, participante.nome);
-        } else {
-          mensagemPersonalizada = mensagemPersonalizada.replace(/{nome}/g, '').replace(/Olá, !/g, 'Olá!').replace(/Olá, /g, 'Olá! ');
-        }
-
-        // Formatar número para busca (apenas dígitos)
-        let phoneSearch = participante.id_contato.replace(/\D/g, '');
-
-        // Se for BR e tiver 12 ou 13 dígitos (55 + DDD + 9 + numero), vamos tentar validar
-        if (!phoneSearch.startsWith('55') && phoneSearch.length >= 10 && phoneSearch.length <= 11) {
-          phoneSearch = '55' + phoneSearch;
-        }
-
-        console.log(`[BACKEND] Verificando existência do número: ${phoneSearch}`);
-
-        // JID para envio
-        let jidEnvio = '';
-
-        try {
-          const results = await this.socket.onWhatsApp(phoneSearch);
-          const result = results && results.length > 0 ? results[0] : null;
-
-          if (result && result.exists) {
-            jidEnvio = result.jid;
-            console.log(`[BACKEND] Número validado: ${phoneSearch} -> JID: ${jidEnvio}`);
-          } else {
-            console.log(`[BACKEND] ⚠️ Número não encontrado no WhatsApp: ${phoneSearch}. Tentando envio direto como fallback...`);
-            jidEnvio = phoneSearch.includes('@') ? phoneSearch : `${phoneSearch}@s.whatsapp.net`;
-            if (jidEnvio.includes('@c.us')) jidEnvio = jidEnvio.replace('@c.us', '@s.whatsapp.net');
-          }
-        } catch (err) {
-          console.error(`[BACKEND] Erro ao validar número ${phoneSearch}:`, err);
-          jidEnvio = phoneSearch.includes('@') ? phoneSearch : `${phoneSearch}@s.whatsapp.net`;
-          if (jidEnvio.includes('@c.us')) jidEnvio = jidEnvio.replace('@c.us', '@s.whatsapp.net');
-        }
-
-        console.log('[BACKEND] Enviando mensagem final para:', jidEnvio);
-
-        let payload: any = { text: mensagemPersonalizada };
-
-        if (mediaUrl && mediaType) {
-          console.log(`[BACKEND] Anexando mídia: ${mediaType} - ${mediaUrl}`);
-          if (mediaType === 'image') {
-            payload = {
-              image: { url: mediaUrl },
-              caption: mensagemPersonalizada
-            };
-          } else if (mediaType === 'video') {
-            payload = {
-              video: { url: mediaUrl },
-              caption: mensagemPersonalizada
-            };
-          }
-        }
-
-        await this.socket.sendMessage(jidEnvio, payload);
-        console.log('[BACKEND] ✅ Mensagem enviada com sucesso para:', participante.id_contato);
-        resultados.push({ contato: participante.id_contato, sucesso: true });
-
-        // Anti-ban delay (10 seconds)
-        console.log('[BACKEND] Aguardando 10 segundos antes do próximo envio...');
-        await delay(10000);
-
-      } catch (error: any) {
-        console.error('[BACKEND] ❌ Erro ao enviar para:', participante.id_contato, error.message);
-        resultados.push({ contato: participante.id_contato, sucesso: false, erro: error.message });
+    for (const [, instance] of this.instances) {
+      if (instance.status === WhatsAppStatus.READY && instance.socket) {
+        readyInstance = instance;
+        break;
       }
     }
 
-    const enviadas = resultados.filter((r) => r.sucesso).length;
-    const falhas = resultados.filter((r) => !r.sucesso).length;
-
-    console.log('[BACKEND] Resultado final: enviadas:', enviadas, ', falhas:', falhas);
-
-    return { enviadas, falhas, detalhes: resultados };
-  }
-
-  async enviarMensagemGrupo(grupoId: string, mensagem: string): Promise<{ sucesso: boolean; mensagemId?: string; erro?: string }> {
-    if (!this.socket || this.status !== WhatsAppStatus.READY) {
-      throw new Error('WhatsApp não está conectado. Status: ' + this.status);
+    if (!readyInstance) {
+      console.warn(`[WhatsApp] Nenhuma instância READY disponível para enviar mensagem para ${phone}`);
+      return;
     }
 
     try {
-      // Garantir formato JID de grupo
-      let chatId = grupoId;
-      if (!chatId.includes('@g.us')) chatId = `${chatId}@g.us`;
+      let formattedPhone = phone.replace(/\D/g, '');
+      if (formattedPhone.startsWith('0')) formattedPhone = formattedPhone.substring(1);
 
-      const result = await this.socket.sendMessage(chatId, { text: mensagem });
+      // Remove 9th digit for Brazil
+      if (formattedPhone.length === 11 && formattedPhone[2] === '9') {
+        formattedPhone = formattedPhone.substring(0, 2) + formattedPhone.substring(3);
+      }
 
-      return { sucesso: true, mensagemId: result?.key?.id || undefined };
-    } catch (error: any) {
-      return { sucesso: false, erro: error.message };
+      if ((formattedPhone.length === 10 || formattedPhone.length === 11) && !formattedPhone.startsWith('55')) {
+        formattedPhone = '55' + formattedPhone;
+      }
+
+      const jid = `${formattedPhone}@s.whatsapp.net`;
+
+      await readyInstance.socket!.sendMessage(jid, { text });
+      console.log(`[WhatsApp] Mensagem automática enviada para ${phone}`);
+    } catch (error) {
+      console.error(`[WhatsApp] Erro ao enviar mensagem automática para ${phone}:`, error);
     }
+  }
+
+  private async storeMessage(sessionId: string, jid: string, message: { id: string, text: string, sender: 'me' | 'them', profilePicUrl?: string }) {
+    try {
+      // Busca a conversa no banco
+      let conversation = await this.prisma.chatConversation.findFirst({
+        where: { channel_id: sessionId, provider_uid: jid }
+      });
+
+      if (!conversation) {
+        // Se for uma nova conversa, busca se é um contato do CRM pra pegar o nome
+        const phone = jid.split('@')[0];
+        const info = await this.getContactInfoByPhone(phone);
+
+        conversation = await this.prisma.chatConversation.create({
+          data: {
+            channel_id: sessionId,
+            provider_uid: jid,
+            contact_name: info.name || jid.split('@')[0],
+            contact_number: phone,
+            profile_pic_url: message.profilePicUrl,
+            status: 'OPEN'
+          }
+        });
+      }
+
+      // Salva a mensagem
+      await this.prisma.chatMessage.create({
+        data: {
+          conversation_id: conversation.id,
+          channel_id: sessionId,
+          provider_msg_id: message.id,
+          direction: message.sender === 'me' ? 'OUTGOING' : 'INCOMING',
+          content: message.text,
+          content_type: 'text'
+        }
+      });
+
+      // Atualiza a conversa
+      await this.prisma.chatConversation.update({
+        where: { id: conversation.id },
+        data: {
+          last_message: message.text,
+          last_message_at: new Date(),
+          profile_pic_url: message.profilePicUrl || conversation.profile_pic_url
+        }
+      });
+
+    } catch (error) {
+      console.error('[WhatsApp] Erro ao persistir mensagem:', error);
+    }
+  }
+
+  async getMessages(sessionId: string, jid: string) {
+    const conversation = await this.prisma.chatConversation.findFirst({
+      where: { channel_id: sessionId, provider_uid: jid },
+      include: {
+        messages: {
+          orderBy: { sent_at: 'asc' },
+          take: 50
+        }
+      }
+    });
+
+    if (!conversation) return [];
+
+    return conversation.messages.map(m => ({
+      id: m.id,
+      text: m.content,
+      time: m.sent_at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      sender: m.direction === 'OUTGOING' ? 'me' : 'them',
+      status: m.status.toLowerCase()
+    }));
+  }
+
+  async getContactInfoByPhone(phone: string) {
+    let cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.startsWith('55')) cleanPhone = cleanPhone.substring(2);
+    // Também tenta com o 9 à esquerda se for o caso
+    const phoneVariants = [cleanPhone];
+    if (cleanPhone.length === 10) phoneVariants.push(cleanPhone.substring(0, 2) + '9' + cleanPhone.substring(2));
+    else if (cleanPhone.length === 11 && cleanPhone[2] === '9') phoneVariants.push(cleanPhone.substring(0, 2) + cleanPhone.substring(3));
+
+    const user = await this.prisma.user.findFirst({
+      where: { phone: { in: phoneVariants } },
+      include: {
+        enrollments: { include: { course: true } },
+        registrations: { include: { event: true } }
+      }
+    });
+
+    const registrations = await this.prisma.registration.findMany({
+      where: { phone: { in: phoneVariants } },
+      include: { event: true }
+    });
+
+    if (!user && registrations.length === 0) return { name: null, role: null, courses: [], events: [] };
+
+    return {
+      name: user?.name || registrations[0]?.name,
+      role: user?.participantType || registrations[0]?.participantType,
+      courses: user?.enrollments.map(e => e.course.title) || [],
+      events: [...new Set([
+        ...(user?.registrations.map(r => r.event.title) || []),
+        ...registrations.map(r => r.event.title)
+      ])]
+    };
   }
 
   async getParticipants() {
-    // Buscar Usuários
-    const users = await this.prisma.user.findMany({
-      where: { phone: { not: null } },
-      select: {
-        id: true, name: true, phone: true, email: true, role: true, participantType: true, state: true, city: true,
-        enrollments: { include: { course: { select: { title: true } } } },
-      },
-    });
-
-    // Buscar Inscrições em Eventos (Registrations)
-    // Assumimos status CONFIRMED ou PENDING? O usuário disse que "viram Users", então vamos pegar todos ou talvez só CONFIRMED?
-    // O pedido diz "busca seja possivel fazer na tabela de registration"
-    const registrations = await this.prisma.registration.findMany({
-      select: {
-        id: true, name: true, phone: true, email: true, participantType: true, state: true, city: true,
-        event: { select: { title: true } }
-      }
-    });
-
-    const mappedUsers = users
-      .filter((user) => user.phone && user.phone.length >= 10)
-      .map((user) => {
-        let phone = user.phone!.replace(/\D/g, '');
-        if (phone.startsWith('0') && phone.length > 11) phone = phone.substring(1);
-        if (phone.length >= 10 && phone.length <= 11) phone = '55' + phone;
-
-        return {
-          id: user.id,
-          id_contato: `${phone}@c.us`,
-          nome: user.name,
-          email: user.email,
-          role: user.role,
-          tipo: user.participantType,
-          estado: user.state,
-          cidade: user.city,
-          cursos: user.enrollments.map((e) => e.course.title),
-          eventos: [], // Usuários podem não ter eventos diretos ou teríamos que buscar outro lugar, por hora vazio
-          origem: 'users'
-        };
-      });
-
-    const mappedRegistrations = registrations
-      .filter((reg) => reg.phone && reg.phone.length >= 10)
-      .map((reg) => {
-        let phone = reg.phone!.replace(/\D/g, '');
-        if (phone.startsWith('0') && phone.length > 11) phone = phone.substring(1);
-        if (phone.length >= 10 && phone.length <= 11) phone = '55' + phone;
-
-        return {
-          id: reg.id,
-          id_contato: `${phone}@c.us`,
-          nome: reg.name,
-          email: reg.email,
-          role: 'USER', // Default para registrations
-          tipo: reg.participantType,
-          estado: reg.state,
-          cidade: reg.city,
-          cursos: [],
-          eventos: [reg.event.title],
-          origem: 'registrations'
-        };
-      });
-
-    // Combinar e remover duplicatas baseadas no telefone?
-    // O usuário disse que registrations viram users, então pode haver duplicação.
-    // Vamos priorizar Users se houver conflito de telefone? Ou listar tudo?
-    // "noa misturar tudo" -> talvez manter separado? Mas "busca seja possivel fazer na tabela de registration igual em users"
-    // Vou concatenar por enquanto. Se precisar desduplicar, podemos fazer um map por telefone.
-
-    // Melhor desduplicar por telefone para não enviar msg 2x pro mesmo numero
-    const allParticipantsMap = new Map();
-
-    [...mappedUsers, ...mappedRegistrations].forEach(p => {
-      if (!allParticipantsMap.has(p.id_contato)) {
-        allParticipantsMap.set(p.id_contato, p);
-      } else {
-        // Merge de informações se já existe?
-        // Ex: user tem cursos, registration tem eventos.
-        const existing = allParticipantsMap.get(p.id_contato);
-        if (p.eventos && p.eventos.length > 0) {
-          existing.eventos = [...(existing.eventos || []), ...p.eventos];
-        }
-        if (p.cursos && p.cursos.length > 0) {
-          existing.cursos = [...(existing.cursos || []), ...p.cursos];
-        }
-        // Atualizar tipo/role se necessário? Manter User priority (já garantido pela ordem se mappedUsers vier primeiro)
-      }
-    });
-
-    return Array.from(allParticipantsMap.values());
-  }
-
-  async isReady(): Promise<boolean> {
-    return this.status === WhatsAppStatus.READY && this.socket !== null;
+    const users = await this.prisma.user.findMany({ where: { phone: { not: null } } });
+    const regs = await this.prisma.registration.findMany({ include: { event: true } });
+    const mapped = [
+      ...users.map(u => ({ id_contato: u.phone, nome: u.name, tipo: u.participantType, estado: u.state, cidade: u.city, origem: 'users' })),
+      ...regs.map(r => ({ id_contato: r.phone, nome: r.name, tipo: r.participantType, estado: r.state, cidade: r.city, origem: 'registrations' }))
+    ];
+    return mapped;
   }
 }

@@ -2,10 +2,16 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EnrollmentStatus, ParticipantType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { CoursesRepository } from './courses.repository';
+import { EnrollmentsRepository } from './enrollments.repository';
 
 @Injectable()
 export class CoursesService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly coursesRepository: CoursesRepository,
+    private readonly enrollmentsRepository: EnrollmentsRepository,
+  ) { }
 
   async listCourses(filter?: string) {
     const now = new Date();
@@ -38,7 +44,7 @@ export class CoursesService {
       };
     }
 
-    return this.prisma.course.findMany({
+    return this.coursesRepository.findMany({
       where: whereClause,
       select: {
         id: true,
@@ -83,7 +89,7 @@ export class CoursesService {
   }
 
   async listMyCourses(userId: string) {
-    const enrollments = await this.prisma.enrollment.findMany({
+    const enrollments = await this.enrollmentsRepository.findMany({
       where: { userId },
       include: {
         course: {
@@ -132,7 +138,7 @@ export class CoursesService {
   }
 
   async getCourseById(courseId: string, userId?: string) {
-    const course = await this.prisma.course.findUnique({
+    const course = await this.coursesRepository.findUnique({
       where: { id: courseId },
       include: {
         creator: {
@@ -447,9 +453,7 @@ export class CoursesService {
           : null;
 
       const parsedPonds =
-        participantType === 'PRODUTOR' && ponds
-          ? parseInt(ponds)
-          : null;
+        participantType === 'PRODUTOR' && ponds ? parseInt(ponds) : null;
 
       // Buscar ou criar turma ativa para o curso
       let activeCourseClass: any = null;
@@ -559,7 +563,9 @@ export class CoursesService {
           ...(parsedHectares !== null ? { hectares: parsedHectares } : {}),
           ...(parsedWaterArea !== null ? { waterArea: parsedWaterArea } : {}),
           ...(parsedPonds !== null ? { ponds: parsedPonds } : {}),
-          ...(participantType ? { participantType: participantType as any } : {}),
+          ...(participantType
+            ? { participantType: participantType as any }
+            : {}),
         },
       });
 
@@ -709,7 +715,9 @@ export class CoursesService {
             role: 'USER',
             cpf: cpf || null,
             birthDate: birthDate ? new Date(birthDate) : null,
-            participantType: participantType ? (participantType as ParticipantType) : null,
+            participantType: participantType
+              ? (participantType as ParticipantType)
+              : null,
             schoolOrUniversity:
               participantType === 'PROFESSOR' && schoolOrUniversity
                 ? schoolOrUniversity
@@ -723,9 +731,7 @@ export class CoursesService {
                 ? parseFloat(waterArea)
                 : null,
             ponds:
-              participantType === 'PRODUTOR' && ponds
-                ? parseInt(ponds)
-                : null,
+              participantType === 'PRODUTOR' && ponds ? parseInt(ponds) : null,
             state: state || null,
             city: city || null,
             phone: whatsappNumber || null,
@@ -774,12 +780,13 @@ export class CoursesService {
     } catch (error) {
       return {
         error: {
-          message: error instanceof Error ? error.message : 'Erro ao processar inscrição',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Erro ao processar inscrição',
           status: 500,
         },
       };
     }
   }
 }
-
-

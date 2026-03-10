@@ -6,80 +6,77 @@ import {
   HttpException,
   HttpStatus,
   UseGuards,
+  Query,
+  Req,
 } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
-
-interface CriarGrupoFiltradoDto {
-  titulo_grupo: string;
-  participantes: Array<{
-    id_contato: string;
-    [key: string]: any;
-  }>;
-  filtros: {
-    [key: string]: any;
-  };
-}
-
-interface EnviarMensagemSegmentadaDto {
-  mensagem: string;
-  mediaUrl?: string; // Opcional: URL da imagem ou vídeo
-  mediaType?: 'image' | 'video'; // Opcional: Tipo da mídia
-  participantes: Array<{
-    id_contato: string;
-    [key: string]: any;
-  }>;
-  filtros: {
-    [key: string]: any;
-  };
-}
-
-interface EnviarMensagemGrupoDto {
-  grupo_id: string;
-  mensagem: string;
-}
 
 @UseGuards(JwtAuthGuard)
 @Controller('api/whatsapp')
 export class WhatsAppController {
   constructor(private readonly whatsappService: WhatsAppService) { }
 
-  @Get('status')
-  async getStatus() {
+  private async getActiveSessionId(req: any, sessionId?: string): Promise<string> {
+    if (sessionId) return sessionId;
+    const sessions = await this.whatsappService.listUserSessions(req.user.id);
+    if (sessions.length === 0) {
+      const newSession = await this.whatsappService.createSession(req.user.id, 'Padrão');
+      return newSession.id;
+    }
+    return sessions[0].id;
+  }
+
+  @Get('sessions')
+  async listSessions(@Req() req: any) {
     try {
-      const status = await this.whatsappService.getStatus();
-      return {
-        success: true,
-        ...status,
-      };
+      const sessions = await this.whatsappService.listUserSessions(req.user.id);
+      return { success: true, sessions };
     } catch (error: any) {
-      throw new HttpException(
-        {
-          success: false,
-          message: 'Erro ao obter status do WhatsApp',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Post('sessions')
+  async createSession(@Req() req: any, @Body('name') name: string) {
+    try {
+      const session = await this.whatsappService.createSession(req.user.id, name || 'Novo WhatsApp');
+      return { success: true, session };
+    } catch (error: any) {
+      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Get('status')
+  async getStatus(@Req() req: any, @Query('sessionId') sessionId?: string) {
+    try {
+      const sid = await this.getActiveSessionId(req, sessionId);
+      const status = await this.whatsappService.getStatus(sid);
+      return { success: true, sessionId: sid, ...status };
+    } catch (error: any) {
+      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
   @Post('pair')
-  async pairWithPhoneNumber(@Body() body: { phoneNumber: string }) {
+  async pairWithPhoneNumber(@Req() req: any, @Body() body: { phoneNumber: string; sessionId?: string }) {
     try {
-      if (!body.phoneNumber) {
-        throw new HttpException(
-          { success: false, message: 'Número de telefone é obrigatório' },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-      const code = await this.whatsappService.requestPairingCode(body.phoneNumber);
+      const sid = await this.getActiveSessionId(req, body.sessionId);
+      const code = await this.whatsappService.requestPairingCode(sid, body.phoneNumber);
       return { success: true, code };
     } catch (error: any) {
-      throw new HttpException(
-        { success: false, message: error.message },
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new HttpException({ success: false, message: error.message }, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  @Post('logout')
+  async logout(@Req() req: any, @Query('sessionId') sessionId?: string) {
+    try {
+      const sid = await this.getActiveSessionId(req, sessionId);
+      await this.whatsappService.logout(sid);
+      return { success: true, message: 'WhatsApp desconectado' };
+    } catch (error: any) {
+      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -87,190 +84,75 @@ export class WhatsAppController {
   async getParticipantes() {
     try {
       const participantes = await this.whatsappService.getParticipants();
-      return {
-        success: true,
-        participantes,
-        total: participantes.length,
-      };
+      return { success: true, participantes, total: participantes.length };
     } catch (error: any) {
-      throw new HttpException(
-        {
-          success: false,
-          message: 'Erro ao obter participantes',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  @Post('criar-grupo-filtrado')
-  async criarGrupoFiltrado(@Body() body: CriarGrupoFiltradoDto) {
-    try {
-      if (!body.titulo_grupo) {
-        throw new HttpException(
-          {
-            success: false,
-            message: 'Título do grupo é obrigatório',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      if (!body.participantes || !Array.isArray(body.participantes) || body.participantes.length === 0) {
-        throw new HttpException(
-          {
-            success: false,
-            message: 'Lista de participantes é obrigatória e não pode estar vazia',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      if (!body.filtros || typeof body.filtros !== 'object') {
-        throw new HttpException(
-          {
-            success: false,
-            message: 'Filtros são obrigatórios e devem ser um objeto',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      const resultado = await this.whatsappService.criarGrupoFiltrado(
-        body.titulo_grupo,
-        body.participantes,
-        body.filtros,
-      );
-
-      return {
-        success: true,
-        grupo_id: resultado.grupoId,
-        participantes_adicionados: resultado.participantesAdicionados,
-        total_filtrados: resultado.totalFiltrados,
-        total_recebidos: body.participantes.length,
-      };
-    } catch (error: any) {
-      throw new HttpException(
-        {
-          success: false,
-          message: error.message || 'Erro ao criar grupo filtrado',
-        },
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
   @Post('enviar-mensagem-segmentada')
-  async enviarMensagemSegmentada(@Body() body: EnviarMensagemSegmentadaDto) {
+  async enviarMensagemSegmentada(@Req() req: any, @Body() body: any) {
     try {
-      if (!body.mensagem || !body.mensagem.trim()) {
-        throw new HttpException(
-          {
-            success: false,
-            message: 'Mensagem é obrigatória',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      if (!body.participantes || !Array.isArray(body.participantes) || body.participantes.length === 0) {
-        throw new HttpException(
-          {
-            success: false,
-            message: 'Lista de participantes é obrigatória e não pode estar vazia',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      if (!body.filtros || typeof body.filtros !== 'object') {
-        throw new HttpException(
-          {
-            success: false,
-            message: 'Filtros são obrigatórios e devem ser um objeto',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
+      const sid = await this.getActiveSessionId(req, body.sessionId);
       const resultado = await this.whatsappService.enviarMensagemSegmentada(
+        sid,
         body.mensagem,
         body.participantes,
         body.filtros,
-        body.mediaUrl,  // Passando mídia
-        body.mediaType, // Passando tipo
+        body.mediaUrl,
+        body.mediaType,
       );
-
-      return {
-        success: true,
-        mensagens_enviadas: resultado.enviadas,
-        mensagens_falhadas: resultado.falhas,
-        total_filtrados: resultado.enviadas + resultado.falhas,
-        total_recebidos: body.participantes.length,
-        detalhes: resultado.detalhes,
-      };
+      return { success: true, ...resultado };
     } catch (error: any) {
-      throw new HttpException(
-        {
-          success: false,
-          message: error.message || 'Erro ao enviar mensagem segmentada',
-        },
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-  @Post('enviar-mensagem-grupo')
-  async enviarMensagemGrupo(@Body() body: EnviarMensagemGrupoDto) {
+  @Get('chats')
+  async getChats(@Req() req: any, @Query('sessionId') sessionId?: string) {
     try {
-      if (!body.grupo_id || !body.grupo_id.trim()) {
-        throw new HttpException(
-          {
-            success: false,
-            message: 'ID do grupo é obrigatório',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      if (!body.mensagem || !body.mensagem.trim()) {
-        throw new HttpException(
-          {
-            success: false,
-            message: 'Mensagem é obrigatória',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      const resultado = await this.whatsappService.enviarMensagemGrupo(
-        body.grupo_id,
-        body.mensagem,
-      );
-
-      if (!resultado.sucesso) {
-        throw new HttpException(
-          {
-            success: false,
-            message: resultado.erro || 'Erro ao enviar mensagem para o grupo',
-          },
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
-      }
-
-      return {
-        success: true,
-        mensagem_id: resultado.mensagemId,
-      };
+      const sid = await this.getActiveSessionId(req, sessionId);
+      const chats = await this.whatsappService.getRecentChats(sid);
+      return { success: true, chats };
     } catch (error: any) {
-      throw new HttpException(
-        {
-          success: false,
-          message: error.message || 'Erro ao enviar mensagem para o grupo',
-        },
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  @Get('messages')
+  async getMessages(@Query('sessionId') sessionId: string, @Query('jid') jid: string) {
+    try {
+      const messages = this.whatsappService.getMessages(sessionId, jid);
+      return { success: true, messages };
+    } catch (error: any) {
+      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Post('send-message')
+  async sendMessage(@Req() req: any, @Body() body: { jid: string; message: string; sessionId?: string }) {
+    try {
+      const sid = await this.getActiveSessionId(req, body.sessionId);
+      const result = await this.whatsappService.enviarMensagemDireta(sid, body.jid, body.message);
+      return { ...result };
+    } catch (error: any) {
+      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Post('create-group')
+  async createGroup(
+    @Body() body: { sessionId: string; name: string; participants: string[] },
+  ) {
+    return this.whatsappService.createGroup(
+      body.sessionId,
+      body.name,
+      body.participants,
+    );
+  }
+
+  @Get('contact-info')
+  async getContactInfo(@Query('phone') phone: string) {
+    return this.whatsappService.getContactInfoByPhone(phone);
   }
 }

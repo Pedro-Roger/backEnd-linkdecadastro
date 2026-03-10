@@ -135,5 +135,3 @@ export class CoursesController {
     return result;
   }
 }
-
-

@@ -13,10 +13,10 @@ export class ShareService {
     } catch (e) {
       decodedSlug = courseIdOrSlug;
     }
-    
+
     // Normaliza o slug para lowercase e trim (como é salvo no banco)
     const normalizedSlug = decodedSlug.toLowerCase().trim();
-    
+
     // Tenta buscar por slug normalizado primeiro (como é salvo no banco)
     let course = await this.prisma.course.findUnique({
       where: { slug: normalizedSlug },
@@ -61,10 +61,10 @@ export class ShareService {
     } catch (e) {
       decodedSlug = eventIdOrSlug;
     }
-    
+
     // Normaliza o slug para lowercase e trim (como é salvo no banco)
     const normalizedSlug = decodedSlug.toLowerCase().trim();
-    
+
     // Tenta buscar por slug normalizado primeiro
     let event = await this.prisma.event.findUnique({
       where: { slug: normalizedSlug },
@@ -122,19 +122,27 @@ export class ShareService {
     url: string;
     type?: string;
   }) {
-    const frontendUrl = process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
+    const frontendUrl =
+      process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
     const siteUrl = frontendUrl.replace(/\/$/, '');
-    
+
     // Normalizar URL da imagem
     let imageUrl = data.bannerUrl;
     if (imageUrl) {
       // Se começa com /uploads/, adicionar URL do backend
       if (imageUrl.startsWith('/uploads/')) {
-        const backendUrl = process.env.BACKEND_URL || 'https://backend-linkdecadastro.onrender.com';
+        const backendUrl =
+          process.env.BACKEND_URL ||
+          'https://backend-linkdecadastro.onrender.com';
         imageUrl = `${backendUrl}${imageUrl}`;
-      } else if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+      } else if (
+        !imageUrl.startsWith('http://') &&
+        !imageUrl.startsWith('https://')
+      ) {
         // Se é relativa, assumir que é do backend
-        const backendUrl = process.env.BACKEND_URL || 'https://backend-linkdecadastro.onrender.com';
+        const backendUrl =
+          process.env.BACKEND_URL ||
+          'https://backend-linkdecadastro.onrender.com';
         imageUrl = `${backendUrl}${imageUrl}`;
       }
     } else {
@@ -142,7 +150,7 @@ export class ShareService {
       imageUrl = `${siteUrl}/logo.png`;
     }
 
-    const description = data.description 
+    const description = data.description
       ? data.description.replace(/<[^>]*>/g, '').substring(0, 200) // Remove HTML e limita a 200 caracteres
       : `${data.title} - Link de Cadastro`;
 
@@ -205,4 +213,3 @@ export class ShareService {
     return text.replace(/[&<>"']/g, (m) => map[m]);
   }
 }
-

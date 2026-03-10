@@ -22,7 +22,8 @@ export class AdminUploadController {
   private getUploadPath() {
     // Diretório padrão: ./public/uploads/banners relative ao backend
     const baseDir =
-      process.env.UPLOAD_DIR || join(process.cwd(), 'public', 'uploads', 'banners');
+      process.env.UPLOAD_DIR ||
+      join(process.cwd(), 'public', 'uploads', 'banners');
     if (!existsSync(baseDir)) {
       mkdirSync(baseDir, { recursive: true });
     }
@@ -60,7 +61,10 @@ export class AdminUploadController {
         cb: FileFilterCallback,
       ) => {
         // Aceitar imagens e vídeos
-        if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/')) {
+        if (
+          !file.mimetype.startsWith('image/') &&
+          !file.mimetype.startsWith('video/')
+        ) {
           return cb(null, false);
         }
         cb(null, true);
@@ -70,26 +74,29 @@ export class AdminUploadController {
       },
     }),
   )
-  async uploadBanner(@UploadedFile() file: Express.Multer.File, @Req() req: any) {
+  async uploadBanner(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: any,
+  ) {
     if (!req.user || req.user.role !== 'ADMIN') {
       throw new ForbiddenException('Não autorizado');
     }
 
     if (!file) {
-      throw new BadRequestException('Arquivo inválido ou não suportado (apenas imagens e vídeos até 30MB)');
+      throw new BadRequestException(
+        'Arquivo inválido ou não suportado (apenas imagens e vídeos até 30MB)',
+      );
     }
 
     const relativePath = `/uploads/banners/${file.filename}`;
-    
+
     // Retornar também o tipo para facilitar o frontend
     const type = file.mimetype.startsWith('video/') ? 'video' : 'image';
 
     return {
       url: relativePath,
       filename: file.filename,
-      type
+      type,
     };
   }
 }
-
-

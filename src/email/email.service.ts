@@ -35,13 +35,16 @@ export class EmailService {
     return this.transporter.sendMail(mailOptions);
   }
 
-  async sendAdminNotificationEmail(adminEmail: string, registrationData: {
-    name: string;
-    email: string;
-    cpf: string;
-    city: string;
-    eventTitle: string;
-  }) {
+  async sendAdminNotificationEmail(
+    adminEmail: string,
+    registrationData: {
+      name: string;
+      email: string;
+      cpf: string;
+      city: string;
+      eventTitle: string;
+    },
+  ) {
     const mailOptions = {
       from: process.env.SMTP_FROM || 'noreply@linkdecadastro.com',
       to: adminEmail,
@@ -59,5 +62,3 @@ export class EmailService {
     return this.transporter.sendMail(mailOptions);
   }
 }
-
-

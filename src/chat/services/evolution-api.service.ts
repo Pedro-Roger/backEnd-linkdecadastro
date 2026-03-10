@@ -16,21 +16,30 @@ export interface IChatProviderService {
   getQRCode(instanceName: string, instanceServerId?: string): Promise<string>;
   getStatus(
     instanceName: string,
-    instanceServerId?: string
+    instanceServerId?: string,
   ): Promise<'connected' | 'disconnected' | 'connecting'>;
-  getInstanceDetails(instanceName: string, instanceServerId?: string): Promise<any>;
-  getPhoneNumber(instanceName: string, instanceServerId?: string): Promise<string | null>;
-  deleteInstance(instanceName: string, instanceServerId?: string): Promise<void>;
+  getInstanceDetails(
+    instanceName: string,
+    instanceServerId?: string,
+  ): Promise<any>;
+  getPhoneNumber(
+    instanceName: string,
+    instanceServerId?: string,
+  ): Promise<string | null>;
+  deleteInstance(
+    instanceName: string,
+    instanceServerId?: string,
+  ): Promise<void>;
   sendTextMessage(
     instanceName: string,
     phoneNumber: string,
     text: string,
-    instanceServerId?: string
+    instanceServerId?: string,
   ): Promise<any>;
   getProfilePicture(
     instanceName: string,
     phoneNumber: string,
-    instanceServerId?: string
+    instanceServerId?: string,
   ): Promise<string | null>;
   sendMediaMessage(
     instanceName: string,
@@ -40,12 +49,12 @@ export interface IChatProviderService {
     fileName?: string,
     caption?: string,
     mimetype?: string,
-    instanceServerId?: string
+    instanceServerId?: string,
   ): Promise<any>;
   getGroupSubject(
     instanceName: string,
     groupJid: string,
-    instanceServerId?: string
+    instanceServerId?: string,
   ): Promise<string | null>;
 }
 
@@ -73,20 +82,24 @@ export class EvolutionApiService implements IChatProviderService {
 
     try {
       if (instanceServerId) {
-        const instance = await this.instancesServerService.getInstanceById(instanceServerId);
+        const instance =
+          await this.instancesServerService.getInstanceById(instanceServerId);
         if (instance) {
           apiUrl = instance.url;
           apiToken = instance.api_key;
         }
       } else {
-        const defaultInstance = await this.instancesServerService.getAvailableInstance('EVOLUTION');
+        const defaultInstance =
+          await this.instancesServerService.getAvailableInstance('EVOLUTION');
         if (defaultInstance) {
           apiUrl = defaultInstance.url;
           apiToken = defaultInstance.api_key;
         }
       }
     } catch (e) {
-      this.logger.warn(`Could not fetch instance server config, using defaults. Error: ${e.message}`);
+      this.logger.warn(
+        `Could not fetch instance server config, using defaults. Error: ${e.message}`,
+      );
     }
 
     return {
@@ -94,7 +107,7 @@ export class EvolutionApiService implements IChatProviderService {
       headers: {
         'Content-Type': 'application/json',
         apikey: apiToken,
-      }
+      },
     };
   }
 
@@ -163,7 +176,6 @@ export class EvolutionApiService implements IChatProviderService {
   ): Promise<void> {
     const config = await this.getServerConfig(instanceServerId);
     try {
-
       const payload = {
         rejectCall: false,
         msgCall: '',
@@ -175,12 +187,19 @@ export class EvolutionApiService implements IChatProviderService {
       };
 
       await firstValueFrom(
-        this.httpService.post(`${config.apiUrl}/settings/set/${instanceName}`, payload, {
-          headers: config.headers,
-        }),
+        this.httpService.post(
+          `${config.apiUrl}/settings/set/${instanceName}`,
+          payload,
+          {
+            headers: config.headers,
+          },
+        ),
       );
     } catch (error) {
-      this.logger.error(`Error setting settings: ${error.message}`, error.stack);
+      this.logger.error(
+        `Error setting settings: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
@@ -191,7 +210,6 @@ export class EvolutionApiService implements IChatProviderService {
   ): Promise<string> {
     const config = await this.getServerConfig(instanceServerId);
     try {
-
       const response = await firstValueFrom(
         this.httpService.get(
           `${config.apiUrl}/instance/connect/${instanceName}`,
@@ -310,7 +328,6 @@ export class EvolutionApiService implements IChatProviderService {
   ): Promise<void> {
     const config = await this.getServerConfig(instanceServerId);
     try {
-
       try {
         await firstValueFrom(
           this.httpService.get(
@@ -440,7 +457,9 @@ export class EvolutionApiService implements IChatProviderService {
       let finalMimeType = mimetype;
 
       if (mediaUrl.startsWith('data:')) {
-        const matches = mediaUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+        const matches = mediaUrl.match(
+          /^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/,
+        );
         if (matches && matches.length === 3) {
           finalMimeType = matches[1];
           finalMedia = matches[2];
@@ -450,15 +469,16 @@ export class EvolutionApiService implements IChatProviderService {
       }
 
       if (!finalMimeType) {
-        finalMimeType = mediaType === 'image'
-          ? 'image/jpeg'
-          : mediaType === 'video'
-            ? 'video/mp4'
-            : mediaType === 'audio'
-              ? 'audio/mpeg'
-              : mediaType === 'document'
-                ? 'application/pdf'
-                : 'application/octet-stream';
+        finalMimeType =
+          mediaType === 'image'
+            ? 'image/jpeg'
+            : mediaType === 'video'
+              ? 'video/mp4'
+              : mediaType === 'audio'
+                ? 'audio/mpeg'
+                : mediaType === 'document'
+                  ? 'application/pdf'
+                  : 'application/octet-stream';
       }
 
       const payload: any = {
@@ -477,10 +497,14 @@ export class EvolutionApiService implements IChatProviderService {
       }
 
       const cleanPayload = Object.fromEntries(
-        Object.entries(payload).filter(([_, v]) => v !== undefined && v !== null && v !== '')
+        Object.entries(payload).filter(
+          ([_, v]) => v !== undefined && v !== null && v !== '',
+        ),
       );
 
-      this.logger.log(`[SEND MEDIA DEBUG] to=${sanitizedNumber} | type=${mediaType} | mime=${finalMimeType}`);
+      this.logger.log(
+        `[SEND MEDIA DEBUG] to=${sanitizedNumber} | type=${mediaType} | mime=${finalMimeType}`,
+      );
 
       const response = await firstValueFrom(
         this.httpService.post(
@@ -520,5 +544,4 @@ export class EvolutionApiService implements IChatProviderService {
       return null;
     }
   }
-
 }

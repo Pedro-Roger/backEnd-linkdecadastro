@@ -7,6 +7,7 @@ import {
   Delete,
   Inject,
   Put,
+  Req,
   UseGuards,
   Query,
 } from '@nestjs/common';
@@ -20,14 +21,17 @@ export class ChatChannelController {
   constructor(
     @Inject(Services.CHAT_SERVICE)
     private readonly chatService: ChatService,
-  ) { }
+  ) {}
 
   @Put('channels/:channelId/notification-only')
   updateChannelNotificationOnly(
     @Param('channelId') channelId: string,
     @Body() body: { isNotificationOnly: boolean },
   ) {
-    return (this.chatService as any).updateChannelNotificationOnly?.(channelId, body.isNotificationOnly);
+    return (this.chatService as any).updateChannelNotificationOnly?.(
+      channelId,
+      body.isNotificationOnly,
+    );
   }
 
   @Get('channels/:channelId/members')
@@ -52,29 +56,35 @@ export class ChatChannelController {
   }
 
   @Get('channels/:type')
-  listChannels(@Param('type') type: string) {
-    return this.chatService.listChannels(type);
+  listChannels(@Param('type') type: string, @Req() req: any) {
+    return this.chatService.listChannels(type, req.user.id);
   }
 
   @Get('channels/:type/:channelId')
   getChannelById(
     @Param('type') type: string,
     @Param('channelId') channelId: string,
+    @Req() req: any,
   ) {
-    return this.chatService.getChannel(type, channelId);
+    return this.chatService.getChannel(type, req.user.id, channelId);
   }
 
   @Post('channels/:type')
-  createChannel(@Param('type') type: string, @Body() body: { name?: string }) {
-    return this.chatService.createChannel(type, body?.name);
+  createChannel(
+    @Param('type') type: string,
+    @Body() body: { name?: string },
+    @Req() req: any,
+  ) {
+    return this.chatService.createChannel(type, req.user.id, body?.name);
   }
 
   @Post('channels/:type/connect')
   connectChannel(
     @Param('type') type: string,
     @Body() body: { channelId?: string },
+    @Req() req: any,
   ) {
-    return this.chatService.connectChannel(type, body?.channelId);
+    return this.chatService.connectChannel(type, req.user.id, body?.channelId);
   }
 
   @Put('channels/:channelId/name')
@@ -91,21 +101,26 @@ export class ChatChannelController {
   }
 
   @Get('channel/:type')
-  getChannel(@Param('type') type: string) {
-    return this.chatService.getChannel(type);
+  getChannel(@Param('type') type: string, @Req() req: any) {
+    return this.chatService.getChannel(type, req.user.id);
   }
 
   @Post('connect/:type')
-  connect(@Param('type') type: string, @Body() body: { channelId?: string }) {
-    return this.chatService.connectChannel(type, body?.channelId);
+  connect(
+    @Param('type') type: string,
+    @Body() body: { channelId?: string },
+    @Req() req: any,
+  ) {
+    return this.chatService.connectChannel(type, req.user.id, body?.channelId);
   }
 
   @Get('status/:type')
   getStatus(
     @Param('type') type: string,
+    @Req() req: any,
     @Query('channelId') channelId?: string,
   ) {
-    return this.chatService.getStatus(type, channelId);
+    return this.chatService.getStatus(type, req.user.id, channelId);
   }
 
   @Delete('disconnect/:type')
@@ -133,9 +148,11 @@ export class ChatChannelController {
   sendMessage(
     @Param('type') type: string,
     @Body() body: { phoneNumber: string; message: string; channelId?: string },
+    @Req() req: any,
   ) {
     return this.chatService.sendMessage(
       type,
+      req.user.id,
       body.phoneNumber,
       body.message,
       body.channelId,

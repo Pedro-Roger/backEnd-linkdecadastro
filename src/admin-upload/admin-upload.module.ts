@@ -5,5 +5,3 @@ import { AdminUploadController } from './admin-upload.controller';
   controllers: [AdminUploadController],
 })
 export class AdminUploadModule {}
-
-

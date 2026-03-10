@@ -20,11 +20,11 @@ import { UpdateCourseDto } from './dto/update-course.dto';
 @UseGuards(JwtAuthGuard)
 @Controller('admin/courses')
 export class AdminCoursesController {
-  constructor(private readonly adminCoursesService: AdminCoursesService) { }
+  constructor(private readonly adminCoursesService: AdminCoursesService) {}
 
   @Get()
   async listCourses(@Req() req: any) {
-    return this.adminCoursesService.listCourses(req.user.role);
+    return this.adminCoursesService.listCourses(req.user.id, req.user.role);
   }
 
   @Get('enrollments/whatsapp')
@@ -36,13 +36,17 @@ export class AdminCoursesController {
     @Query('courseId') courseId?: string,
     @Query('eventId') eventId?: string,
   ) {
-    return this.adminCoursesService.listAllEnrollmentsForWhatsApp(req.user.role, {
-      city,
-      state,
-      participantType,
-      courseId,
-      eventId,
-    } as any);
+    return this.adminCoursesService.listAllEnrollmentsForWhatsApp(
+      req.user.id,
+      req.user.role,
+      {
+        city,
+        state,
+        participantType,
+        courseId,
+        eventId,
+      } as any,
+    );
   }
 
   @Post()
@@ -91,7 +95,11 @@ export class AdminCoursesController {
 
   @Get(':courseId/lessons')
   async listLessons(@Param('courseId') courseId: string, @Req() req: any) {
-    return this.adminCoursesService.listLessons(courseId, req.user.role);
+    return this.adminCoursesService.listLessons(
+      courseId,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Post(':courseId/lessons')
@@ -157,7 +165,11 @@ export class AdminCoursesController {
 
   @Get(':courseId/enrollments')
   async listEnrollments(@Param('courseId') courseId: string, @Req() req: any) {
-    return this.adminCoursesService.listEnrollments(courseId, req.user.role);
+    return this.adminCoursesService.listEnrollments(
+      courseId,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   // Export
@@ -167,19 +179,26 @@ export class AdminCoursesController {
     @Param('courseId') courseId: string,
     @Query('format') format: string | undefined,
     @Query('fields') fields: string | string[] | undefined,
+    @Query('classId') classId: string | undefined,
+    @Query('city') city: string | undefined,
+    @Query('state') state: string | undefined,
     @Req() req: any & { res?: Response },
   ) {
     try {
       const fieldsArray =
         typeof fields === 'string'
           ? fields.split(',').map((f) => f.trim())
-          : (fields as string[] | undefined);
+          : fields;
 
       const result = await this.adminCoursesService.exportEnrollments(
         courseId,
+        req.user.id,
         req.user.role,
         format,
         fieldsArray,
+        classId,
+        city,
+        state,
       );
 
       const res = req.res as Response;
@@ -198,7 +217,8 @@ export class AdminCoursesController {
     } catch (error) {
       const res = req.res as Response;
       res.status(500).json({
-        error: error instanceof Error ? error.message : 'Erro ao exportar dados',
+        error:
+          error instanceof Error ? error.message : 'Erro ao exportar dados',
       });
     }
   }
@@ -212,6 +232,7 @@ export class AdminCoursesController {
   ) {
     return this.adminCoursesService.listCourseClasses(
       courseId,
+      req.user.id,
       req.user.role,
     );
   }
@@ -224,18 +245,18 @@ export class AdminCoursesController {
   ) {
     return this.adminCoursesService.createCourseClass(
       courseId,
+      req.user.id,
       req.user.role,
       body,
     );
   }
 
   @Patch('classes/:classId/close')
-  async closeCourseClass(
-    @Param('classId') classId: string,
-    @Req() req: any,
-  ) {
-    return this.adminCoursesService.closeCourseClass(classId, req.user.role);
+  async closeCourseClass(@Param('classId') classId: string, @Req() req: any) {
+    return this.adminCoursesService.closeCourseClass(
+      classId,
+      req.user.id,
+      req.user.role,
+    );
   }
 }
-
-

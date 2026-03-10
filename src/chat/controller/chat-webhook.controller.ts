@@ -18,8 +18,7 @@ export class ChatWebhookController {
   constructor(
     @Inject(Services.CHAT_SERVICE)
     private readonly chatService: ChatService,
-  ) {
-  }
+  ) {}
 
   @Post(':type')
   async handleWebhook(
@@ -80,9 +79,11 @@ export class ChatWebhookController {
             break;
           }
 
-          // In this project, we don't have SQS yet. 
+          // In this project, we don't have SQS yet.
           // We can handle the message directly or log it for now.
-          this.logger.log(`Message received for instance ${instance}: ${JSON.stringify(data)}`);
+          this.logger.log(
+            `Message received for instance ${instance}: ${JSON.stringify(data)}`,
+          );
           break;
         }
 

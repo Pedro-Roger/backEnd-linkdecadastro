@@ -1,9 +1,11 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import * as bcrypt from 'bcryptjs';
+import { UserRole } from '@prisma/client';
 
 @Injectable()
 export class UserService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async getProfile(userId: string) {
     return this.prisma.user.findUnique({
@@ -40,7 +42,7 @@ export class UserService {
       hectares?: number;
       waterArea?: number;
       ponds?: number;
-    }
+    },
   ) {
     // Buscar o tipo de participante atual do usuário
     const currentUser = await this.prisma.user.findUnique({
@@ -55,29 +57,33 @@ export class UserService {
         bio: data.bio,
         avatar: data.avatar || null,
         schoolOrUniversity:
-          currentUser?.participantType === 'PROFESSOR' && data.schoolOrUniversity !== undefined
+          currentUser?.participantType === 'PROFESSOR' &&
+            data.schoolOrUniversity !== undefined
             ? data.schoolOrUniversity
             : currentUser?.participantType !== 'PROFESSOR'
-            ? null
-            : undefined,
+              ? null
+              : undefined,
         hectares:
-          currentUser?.participantType === 'PRODUTOR' && data.hectares !== undefined
+          currentUser?.participantType === 'PRODUTOR' &&
+            data.hectares !== undefined
             ? data.hectares
             : currentUser?.participantType !== 'PRODUTOR'
-            ? null
-            : undefined,
+              ? null
+              : undefined,
         waterArea:
-          currentUser?.participantType === 'PRODUTOR' && data.waterArea !== undefined
+          currentUser?.participantType === 'PRODUTOR' &&
+            data.waterArea !== undefined
             ? data.waterArea
             : currentUser?.participantType !== 'PRODUTOR'
-            ? null
-            : undefined,
+              ? null
+              : undefined,
         ponds:
-          currentUser?.participantType === 'PRODUTOR' && data.ponds !== undefined
+          currentUser?.participantType === 'PRODUTOR' &&
+            data.ponds !== undefined
             ? data.ponds
             : currentUser?.participantType !== 'PRODUTOR'
-            ? null
-            : undefined,
+              ? null
+              : undefined,
       },
       select: {
         id: true,
@@ -152,9 +158,9 @@ export class UserService {
     const totalProgress =
       enrollments.length > 0
         ? Math.round(
-            enrollments.reduce((sum, e) => sum + e.progress, 0) /
-              enrollments.length,
-          )
+          enrollments.reduce((sum, e) => sum + e.progress, 0) /
+          enrollments.length,
+        )
         : 0;
 
     return {
@@ -199,6 +205,53 @@ export class UserService {
       },
     });
   }
+
+  async updateUserRole(userId: string, role: string) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { role: role as UserRole },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      },
+    });
+  }
+
+  async createUser(data: {
+    name: string;
+    email: string;
+    password?: string;
+    role: string;
+  }) {
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: data.email },
+    });
+
+    if (existingUser) {
+      throw new BadRequestException('Email já cadastrado');
+    }
+
+    const hashedPassword = data.password
+      ? await bcrypt.hash(data.password, 10)
+      : null;
+
+    return this.prisma.user.create({
+      data: {
+        name: data.name,
+        email: data.email,
+        password: hashedPassword,
+        role: data.role as UserRole,
+        needsProfileCompletion: !data.password,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+  }
 }
-
-

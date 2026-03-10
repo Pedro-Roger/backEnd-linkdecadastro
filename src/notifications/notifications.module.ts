@@ -8,5 +8,3 @@ import { PrismaService } from '../prisma/prisma.service';
   providers: [NotificationsService, PrismaService],
 })
 export class NotificationsModule {}
-
-

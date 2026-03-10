@@ -15,6 +15,8 @@ import { AdminEventsModule } from './admin-events/admin-events.module';
 import { AdminUploadModule } from './admin-upload/admin-upload.module';
 import { ShareModule } from './share/share.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { AdminCrmModule } from './admin-crm/admin-crm.module';
+import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 
 @Module({
   imports: [
@@ -34,8 +36,10 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
     AdminUploadModule,
     ShareModule,
     WhatsAppModule,
+    AdminCrmModule,
+    AiAssistantModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }

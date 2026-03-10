@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -64,9 +68,7 @@ export class AuthService {
             ? data.waterArea
             : null,
         ponds:
-          data.participantType === 'PRODUTOR' && data.ponds
-            ? data.ponds
-            : null,
+          data.participantType === 'PRODUTOR' && data.ponds ? data.ponds : null,
         state: data.state || null,
         city: data.city || null,
         phone: data.phone || null,
@@ -144,7 +146,11 @@ export class AuthService {
     });
   }
 
-  async googleLogin(googleUser: { email: string; name: string; picture?: string | null }) {
+  async googleLogin(googleUser: {
+    email: string;
+    name: string;
+    picture?: string | null;
+  }) {
     // Verifica se o usuário já existe
     let user = await this.prisma.user.findUnique({
       where: { email: googleUser.email },
@@ -199,5 +205,3 @@ export class AuthService {
     };
   }
 }
-
-

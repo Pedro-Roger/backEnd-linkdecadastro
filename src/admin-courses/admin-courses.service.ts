@@ -21,20 +21,47 @@ import * as XLSX from 'xlsx';
 import PDFDocument from 'pdfkit';
 // Podemos usar toLocaleString para datas nos relatórios de exportação
 
+import { CoursesRepository } from '../courses/courses.repository';
+import { EventsRepository } from '../events/events.repository';
+import { RegistrationsRepository } from '../registrations/registrations.repository';
+import { EnrollmentsRepository } from '../courses/enrollments.repository';
+import { UsersRepository } from '../auth/users.repository';
+
 @Injectable()
 export class AdminCoursesService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly coursesRepository: CoursesRepository,
+    private readonly eventsRepository: EventsRepository,
+    private readonly registrationsRepository: RegistrationsRepository,
+    private readonly enrollmentsRepository: EnrollmentsRepository,
+    private readonly usersRepository: UsersRepository,
+  ) { }
 
   private assertAdmin(role?: string) {
-    if (role !== 'ADMIN') {
+    if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
       throw new ForbiddenException('Não autorizado');
     }
   }
 
-  async listCourses(userRole?: string) {
+  private getOwnedWhereClause(
+    userId: string,
+    userRole: string | undefined,
+    otherFilters: any = {},
+  ) {
+    if (userRole?.toUpperCase() === 'SUPER_ADMIN') {
+      return otherFilters;
+    }
+    return { ...otherFilters, createdBy: userId };
+  }
+
+  async listCourses(userId: string, userRole?: string) {
     this.assertAdmin(userRole);
 
-    return this.prisma.course.findMany({
+    const where = this.getOwnedWhereClause(userId, userRole);
+
+    return this.coursesRepository.findMany({
+      where,
       include: {
         creator: {
           select: {
@@ -62,6 +89,7 @@ export class AdminCoursesService {
   }
 
   async listAllEnrollmentsForWhatsApp(
+    userId: string,
     userRole?: string,
     filters?: {
       city?: string;
@@ -102,14 +130,22 @@ export class AdminCoursesService {
       const eventId = (filters as any).eventId;
 
       if (courseId) {
+        // Verificar se o admin é dono do curso
+        const ownedCourse = await this.coursesRepository.findFirst({
+          where: this.getOwnedWhereClause(userId, userRole, { id: courseId }),
+        });
+        if (!ownedCourse) {
+          throw new NotFoundException('Curso não encontrado ou acesso negado');
+        }
+
         // Buscar inscrições deste curso
-        const enrollments = await this.prisma.enrollment.findMany({
+        const enrollments = await this.enrollmentsRepository.findMany({
           where: {
             courseId: courseId,
             user: {
               phone: { not: null },
-              ...where
-            }
+              ...where,
+            },
           },
           include: {
             user: {
@@ -118,25 +154,41 @@ export class AdminCoursesService {
                 name: true,
                 email: true,
                 phone: true,
+                _count: {
+                  select: {
+                    enrollments: true,
+                  },
+                },
                 city: true,
                 state: true,
                 participantType: true,
-              }
-            }
-          }
+                enrollments: { include: { course: { select: { title: true } } } },
+                registrations: { include: { event: { select: { title: true } } } },
+              },
+            },
+          },
         });
-        users = enrollments.map(e => e.user);
-      }
-      else if (eventId) {
+        users = enrollments.map((e) => e.user);
+      } else if (eventId) {
+        // Verificar se o admin é dono do evento
+        const ownedEvent = await this.eventsRepository.findFirst({
+          where: this.getOwnedWhereClause(userId, userRole, { id: eventId }),
+        });
+        if (!ownedEvent) {
+          throw new NotFoundException('Evento não encontrado ou acesso negado');
+        }
+
         // Buscar inscrições deste evento
         console.log('[DEBUG] Buscando registrations para eventId:', eventId);
-        const registrations = await this.prisma.registration.findMany({
+        const registrations = await this.registrationsRepository.findMany({
           where: {
             eventId: eventId,
             // Aplicar filtros de cidade/estado diretamente no registro se disponíveis
             ...(filters?.city ? { city: { contains: filters.city } } : {}),
             ...(filters?.state ? { state: { contains: filters.state } } : {}),
-            ...(filters?.participantType ? { participantType: filters.participantType as any } : {})
+            ...(filters?.participantType
+              ? { participantType: filters.participantType as any }
+              : {}),
           },
           select: {
             id: true,
@@ -146,23 +198,35 @@ export class AdminCoursesService {
             city: true,
             state: true,
             participantType: true,
-          }
+            event: { select: { title: true } },
+          },
         });
         console.log('[DEBUG] Registrations encontrados:', registrations.length);
-        console.log('[DEBUG] Primeiros 3 registros:', registrations.slice(0, 3));
+        console.log(
+          '[DEBUG] Primeiros 3 registros:',
+          registrations.slice(0, 3),
+        );
         users = registrations;
-      }
-      else {
+      } else {
         // Comportamento padrão: buscar todos os usuários E todas as inscrições em eventos
         // Isso garante que alunos que só se inscreveram em eventos (e não criaram conta) também apareçam
-        console.log('[DEBUG] Buscando TODOS os usuários e registrações (sem filtro de curso/evento)');
+        console.log(
+          '[DEBUG] Buscando TODOS os usuários e registrações (sem filtro de curso/evento)',
+        );
 
         try {
+          const ownedEventsWhere = this.getOwnedWhereClause(userId, userRole);
+          const ownedCoursesWhere = this.getOwnedWhereClause(userId, userRole);
+
           const [dbUsers, dbRegistrations] = await Promise.all([
-            this.prisma.user.findMany({
+            this.usersRepository.findMany({
               where: {
                 ...where,
-                phone: { not: null }, // Só queremos quem tem telefone
+                phone: { not: null },
+                OR: [
+                  { enrollments: { some: { course: ownedCoursesWhere } } },
+                  { registrations: { some: { event: ownedEventsWhere } } },
+                ],
               },
               select: {
                 id: true,
@@ -172,14 +236,16 @@ export class AdminCoursesService {
                 city: true,
                 state: true,
                 participantType: true,
+                enrollments: { include: { course: { select: { title: true } } } },
+                registrations: { include: { event: { select: { title: true } } } },
               },
               orderBy: { name: 'asc' },
             }),
-            this.prisma.registration.findMany({
+            this.registrationsRepository.findMany({
               where: {
-                // Reutilizar os mesmos filtros de cidade/estado/tipo
                 ...where,
-                phone: { not: '' }
+                phone: { not: '' },
+                event: ownedEventsWhere,
               },
               select: {
                 id: true,
@@ -189,24 +255,48 @@ export class AdminCoursesService {
                 city: true,
                 state: true,
                 participantType: true,
-              }
-            })
+                event: { select: { title: true } },
+              },
+            }),
           ]);
 
           console.log('[DEBUG] Usuários encontrados:', dbUsers.length);
-          console.log('[DEBUG] Registrações encontradas:', dbRegistrations.length);
+          console.log(
+            '[DEBUG] Registrações encontradas:',
+            dbRegistrations.length,
+          );
 
           // Combinar ambas as listas
           users = [...dbUsers, ...dbRegistrations];
         } catch (dbError) {
-          console.error('[DEBUG] Erro ao buscar usuários/registrações:', dbError);
+          console.error(
+            '[DEBUG] Erro ao buscar usuários/registrações:',
+            dbError,
+          );
           throw dbError;
         }
       }
 
+      // Buscar relações para todos os usuários que ainda não as têm
+      // Isso é necessário porque alguns caminhos de busca (como por courseId) pegam o objeto User direto sem as relações
+      const normalizedUsers = await Promise.all(users.map(async (u) => {
+        if (u.id && (u as any).phone && !(u as any).enrollments && !(u as any).registrations && !(u as any).event) {
+          // É um usuário mas sem relações carregadas
+          const fullUser = await this.usersRepository.findUnique({
+            where: { id: u.id },
+            select: {
+              enrollments: { include: { course: { select: { title: true } } } },
+              registrations: { include: { event: { select: { title: true } } } },
+            }
+          });
+          return { ...u, ...fullUser };
+        }
+        return u;
+      }));
+
       // Processar e normalizar
-      console.log('[DEBUG] Total de users antes de processar:', users.length);
-      const participants = users
+      console.log('[DEBUG] Total de users antes de processar:', normalizedUsers.length);
+      const participants = normalizedUsers
         .map((user) => {
           const phone = user.phone;
           if (!phone) return null;
@@ -230,6 +320,9 @@ export class AdminCoursesService {
             produtor: user.participantType === 'PRODUTOR',
             professor: user.participantType === 'PROFESSOR',
             estudante: user.participantType === 'ESTUDANTE',
+            cursos: (user as any).enrollments?.map((e: any) => e.course.title) || [],
+            eventos: (user as any).registrations?.map((r: any) => r.event.title) ||
+              ((user as any).event ? [(user as any).event.title] : []),
           };
         })
         .filter((p) => p !== null);
@@ -238,7 +331,7 @@ export class AdminCoursesService {
 
       // Remover duplicatas por telefone/id_contato
       const uniqueParticipants = Array.from(
-        new Map(participants.map((p) => [p!.id_contato, p!])).values(),
+        new Map(participants.map((p) => [p.id_contato, p])).values(),
       );
 
       console.log('[DEBUG] Participantes únicos:', uniqueParticipants.length);
@@ -257,8 +350,10 @@ export class AdminCoursesService {
   async getCourseById(courseId: string, userId: string, userRole?: string) {
     this.assertAdmin(userRole);
 
-    const course = await this.prisma.course.findUnique({
-      where: { id: courseId },
+    const where = this.getOwnedWhereClause(userId, userRole, { id: courseId });
+
+    const course = await this.coursesRepository.findFirst({
+      where,
       include: {
         creator: {
           select: {
@@ -312,7 +407,11 @@ export class AdminCoursesService {
     return null;
   }
 
-  async createCourse(userId: string, userRole: string | undefined, body: CreateCourseDto) {
+  async createCourse(
+    userId: string,
+    userRole: string | undefined,
+    body: CreateCourseDto,
+  ) {
     try {
       this.assertAdmin(userRole);
     } catch (error) {
@@ -349,7 +448,7 @@ export class AdminCoursesService {
         // Regex validation handled by DTO
 
         // Verificar se já existe
-        const existingCourse = await this.prisma.course.findFirst({
+        const existingCourse = await this.coursesRepository.findFirst({
           where: { slug: normalizedSlug },
         });
         if (existingCourse) {
@@ -480,17 +579,15 @@ export class AdminCoursesService {
   ): Promise<void> {
     this.assertAdmin(userRole);
 
-    const course = await this.prisma.course.findUnique({
-      where: { id: courseId },
+    const course = await this.coursesRepository.findFirst({
+      where: this.getOwnedWhereClause(userId, userRole, { id: courseId }),
     });
 
     if (!course) {
-      throw new NotFoundException('Curso não encontrado');
+      throw new NotFoundException('Curso não encontrado ou acesso negado');
     }
 
-    // Admins podem deletar qualquer curso - removida restrição de createdBy
-
-    await this.prisma.course.delete({
+    await this.coursesRepository.delete({
       where: { id: courseId },
     });
   }
@@ -503,12 +600,14 @@ export class AdminCoursesService {
   ) {
     this.assertAdmin(userRole);
 
-    const existingCourse = await this.prisma.course.findUnique({
-      where: { id: courseId },
+    const where = this.getOwnedWhereClause(userId, userRole, { id: courseId });
+
+    const existingCourse = await this.coursesRepository.findFirst({
+      where,
     });
 
     if (!existingCourse) {
-      throw new NotFoundException('Curso não encontrado');
+      throw new NotFoundException('Curso não encontrado ou acesso negado');
     }
 
     // Admins podem editar qualquer curso - removida restrição de createdBy
@@ -572,8 +671,7 @@ export class AdminCoursesService {
     if (endDate !== undefined)
       updateData.endDate = endDate ? new Date(endDate) : null;
     if (slug !== undefined) {
-      updateData.slug =
-        slug && slug.trim() ? slug.trim().toLowerCase() : null;
+      updateData.slug = slug && slug.trim() ? slug.trim().toLowerCase() : null;
     }
 
     const updatedCourse = await this.prisma.$transaction(async (tx) => {
@@ -650,16 +748,22 @@ export class AdminCoursesService {
 
     if (!updatedCourse) {
       throw new NotFoundException('Curso não encontrado após atualização');
+      throw new NotFoundException('Curso não encontrado após atualização');
     }
 
     return updatedCourse;
   }
 
-  async listLessons(courseId: string, userRole?: string) {
-    this.assertAdmin(userRole);
+  async listLessons(courseId: string, userId: string, userRole?: string) {
+    const ownedCourse = await this.coursesRepository.findFirst({
+      where: this.getOwnedWhereClause(userId, userRole, { id: courseId }),
+    });
+    if (!ownedCourse) {
+      throw new NotFoundException('Curso não encontrado ou acesso negado');
+    }
 
     return this.prisma.lesson.findMany({
-      where: { courseId },
+      where: { courseId: ownedCourse.id },
       orderBy: { order: 'asc' },
       include: {
         _count: {
@@ -680,12 +784,12 @@ export class AdminCoursesService {
   ) {
     this.assertAdmin(userRole);
 
-    const course = await this.prisma.course.findUnique({
-      where: { id: courseId },
+    const ownedCourse = await this.coursesRepository.findFirst({
+      where: this.getOwnedWhereClause(userId, userRole, { id: courseId }),
     });
 
-    if (!course) {
-      throw new NotFoundException('Curso não encontrado');
+    if (!ownedCourse) {
+      throw new NotFoundException('Curso não encontrado ou acesso negado');
     }
 
     // Admins podem criar aulas em qualquer curso - removida restrição de createdBy
@@ -713,7 +817,7 @@ export class AdminCoursesService {
       },
     });
 
-    const enrollments = await this.prisma.enrollment.findMany({
+    const enrollments = await this.enrollmentsRepository.findMany({
       where: { courseId },
       select: { userId: true },
     });
@@ -724,7 +828,7 @@ export class AdminCoursesService {
           userId: enrollment.userId,
           type: 'COURSE_UPDATED',
           title: 'Nova aula disponível',
-          message: `Uma nova aula foi adicionada ao curso "${course.title}": ${body.title}`,
+          message: `Uma nova aula foi adicionada ao curso "${ownedCourse.title}": ${body.title}`,
           link: `/course/${courseId}`,
         })),
       });
@@ -758,6 +862,10 @@ export class AdminCoursesService {
       throw new NotFoundException('Aula não encontrada');
     }
 
+    if (userRole !== 'SUPER_ADMIN' && lesson.course.createdBy !== userId) {
+      throw new ForbiddenException('Não autorizado a ver esta aula');
+    }
+
     // Admins podem ver qualquer aula - removida restrição de createdBy
 
     return lesson;
@@ -789,7 +897,9 @@ export class AdminCoursesService {
       throw new NotFoundException('Aula não encontrada');
     }
 
-    // Admins podem editar qualquer aula - removida restrição de createdBy
+    if (userRole !== 'SUPER_ADMIN' && lesson.course.createdBy !== userId) {
+      throw new ForbiddenException('Não autorizado a editar esta aula');
+    }
 
     const youtubeId = this.extractYouTubeId(body.videoUrl);
     if (!youtubeId) {
@@ -841,19 +951,28 @@ export class AdminCoursesService {
       throw new NotFoundException('Aula não encontrada');
     }
 
-    // Admins podem deletar qualquer aula - removida restrição de createdBy
+    if (userRole !== 'SUPER_ADMIN' && lesson.course.createdBy !== userId) {
+      throw new ForbiddenException('Não autorizado a excluir esta aula');
+    }
 
     await this.prisma.lesson.delete({
       where: { id: lessonId },
     });
   }
 
-  async listEnrollments(courseId: string, userRole?: string) {
+  async listEnrollments(courseId: string, userId: string, userRole?: string) {
     this.assertAdmin(userRole);
+
+    const ownedCourse = await this.coursesRepository.findFirst({
+      where: this.getOwnedWhereClause(userId, userRole, { id: courseId }),
+    });
+    if (!ownedCourse) {
+      throw new NotFoundException('Curso não encontrado ou acesso negado');
+    }
 
     try {
       // Primeiro, busca os enrollments sem o include do user para evitar erro
-      const enrollmentsData = await this.prisma.enrollment.findMany({
+      const enrollmentsData = await this.enrollmentsRepository.findMany({
         where: { courseId },
         include: {
           course: {
@@ -871,7 +990,7 @@ export class AdminCoursesService {
 
       // Busca os users separadamente para evitar erro quando user não existe
       const userIds = enrollmentsData.map((e) => e.userId).filter(Boolean);
-      const users = await this.prisma.user.findMany({
+      const users = await this.usersRepository.findMany({
         where: { id: { in: userIds } },
         select: {
           id: true,
@@ -891,12 +1010,13 @@ export class AdminCoursesService {
       const courseClassIds = enrollmentsData
         .map((e: any) => e.courseClassId)
         .filter(Boolean);
-      const courseClasses = courseClassIds.length > 0
-        ? await (this.prisma as any).courseClass.findMany({
-          where: { id: { in: courseClassIds } },
-          select: { id: true, classNumber: true },
-        })
-        : [];
+      const courseClasses =
+        courseClassIds.length > 0
+          ? await (this.prisma as any).courseClass.findMany({
+            where: { id: { in: courseClassIds } },
+            select: { id: true, classNumber: true },
+          })
+          : [];
       const classMap = new Map(courseClasses.map((c: any) => [c.id, c]));
 
       // Combina os dados, filtrando apenas enrollments com user válido
@@ -908,7 +1028,9 @@ export class AdminCoursesService {
           }
           let courseClassData: { classNumber: number } | null = null;
           if (enrollment.courseClassId) {
-            const foundClass = classMap.get(enrollment.courseClassId) as { id: string; classNumber: number } | undefined;
+            const foundClass = classMap.get(enrollment.courseClassId) as
+              | { id: string; classNumber: number }
+              | undefined;
             if (foundClass) {
               courseClassData = { classNumber: foundClass.classNumber };
             }
@@ -919,7 +1041,7 @@ export class AdminCoursesService {
             courseClass: courseClassData,
           };
         })
-        .filter((e) => e !== null) as any[];
+        .filter((e) => e !== null);
 
       return enrollments;
     } catch (error) {
@@ -936,29 +1058,54 @@ export class AdminCoursesService {
 
   async exportEnrollments(
     courseId: string,
+    userId: string,
     userRole: string | undefined,
     formatParam?: string,
     fieldsParam?: string[],
+    classId?: string,
+    city?: string,
+    state?: string,
   ) {
     this.assertAdmin(userRole);
 
-    const course = await this.prisma.course.findUnique({
-      where: { id: courseId },
-      select: {
-        title: true,
-      },
+    const ownedCourse = await this.coursesRepository.findFirst({
+      where: this.getOwnedWhereClause(userId, userRole, { id: courseId }),
+      select: { title: true },
     });
 
-    if (!course) {
-      throw new NotFoundException('Curso não encontrado');
+    if (!ownedCourse) {
+      throw new NotFoundException('Curso não encontrado ou acesso negado');
     }
+    const course = ownedCourse;
 
     let enrollments: any[] = [];
+    let filenameSuffix = '';
 
     try {
+      const whereClause: any = { courseId };
+      if (classId) {
+        whereClause.regionQuotaId = classId;
+        const quota = await this.prisma.courseRegionQuota.findUnique({
+          where: { id: classId },
+          select: { state: true, city: true },
+        });
+        if (quota) {
+          filenameSuffix = `-${quota.city || quota.state}-turma`;
+        }
+      } else if (city) {
+        // Se city for passado diretamente, precisamos buscar pela quota ou pelo user?
+        // No enrollment, a cidade do user pode ser diferente da region quota.
+        // O usuário quer filtrar por cidade. Se não houver regionQuota, filtramos pelo user.
+        whereClause.regionQuota = {
+          city: { equals: city, mode: 'insensitive' },
+          ...(state ? { state: { equals: state, mode: 'insensitive' } } : {}),
+        };
+        filenameSuffix = `-${city}-${state || ''}`;
+      }
+
       // Primeiro, busca os enrollments sem o include do user para evitar erro
-      const enrollmentsData = await this.prisma.enrollment.findMany({
-        where: { courseId },
+      const enrollmentsData = await this.enrollmentsRepository.findMany({
+        where: whereClause,
         include: {
           regionQuota: {
             select: {
@@ -972,7 +1119,7 @@ export class AdminCoursesService {
 
       // Busca os users separadamente para evitar erro quando user não existe
       const userIds = enrollmentsData.map((e) => e.userId).filter(Boolean);
-      const users = await this.prisma.user.findMany({
+      const users = await this.usersRepository.findMany({
         where: { id: { in: userIds } },
         select: {
           id: true,
@@ -1020,8 +1167,7 @@ export class AdminCoursesService {
       },
       whatsapp: {
         label: 'WhatsApp',
-        getter: (e: any) =>
-          e.whatsappNumber || e.user.phone || '-',
+        getter: (e: any) => e.whatsappNumber || e.user.phone || '-',
       },
       status: {
         label: 'Status',
@@ -1073,15 +1219,12 @@ export class AdminCoursesService {
       },
       createdAt: {
         label: 'Data de Inscrição',
-        getter: (e: any) =>
-          new Date(e.createdAt).toLocaleString(),
+        getter: (e: any) => new Date(e.createdAt).toLocaleString(),
       },
       completedAt: {
         label: 'Data de Conclusão',
         getter: (e: any) =>
-          e.completedAt
-            ? new Date(e.completedAt).toLocaleString()
-            : '-',
+          e.completedAt ? new Date(e.completedAt).toLocaleString() : '-',
       },
       waitlistPosition: {
         label: 'Posição na Lista de Espera',
@@ -1137,7 +1280,10 @@ export class AdminCoursesService {
       formatParam === 'csv' || formatParam === 'pdf' ? formatParam : 'xlsx';
 
     if (formatType === 'pdf') {
-      const doc = new PDFDocument({ size: 'A4', margin: 40 }) as PDFKit.PDFDocument;
+      const doc = new PDFDocument({
+        size: 'A4',
+        margin: 40,
+      });
       const chunks: Buffer[] = [];
 
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -1153,7 +1299,10 @@ export class AdminCoursesService {
         doc.fontSize(12).text('Nenhum inscrito encontrado.');
       } else {
         enrollments.forEach((enrollment, index) => {
-          doc.fontSize(12).font('Helvetica-Bold').text(`Participante ${index + 1}`);
+          doc
+            .fontSize(12)
+            .font('Helvetica-Bold')
+            .text(`Participante ${index + 1}`);
           doc.moveDown(0.2);
 
           selectedFields.forEach((fieldKey) => {
@@ -1177,7 +1326,7 @@ export class AdminCoursesService {
       return {
         buffer: pdfBuffer,
         contentType: 'application/pdf',
-        filename: `inscritos-${sanitizedTitle}.pdf`,
+        filename: `inscritos-${sanitizedTitle}${filenameSuffix}.pdf`,
       };
     }
 
@@ -1191,7 +1340,7 @@ export class AdminCoursesService {
       return {
         buffer: csvBuffer,
         contentType: 'text/csv; charset=utf-8',
-        filename: `inscritos-${sanitizedTitle}.csv`,
+        filename: `inscritos-${sanitizedTitle}${filenameSuffix}.csv`,
       };
     }
 
@@ -1201,17 +1350,21 @@ export class AdminCoursesService {
       buffer,
       contentType:
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      filename: `inscritos-${sanitizedTitle}.xlsx`,
+      filename: `inscritos-${sanitizedTitle}${filenameSuffix}.xlsx`,
     };
   }
 
   // ========== GESTÃO DE TURMAS (COURSE CLASSES) ==========
 
-  async listCourseClasses(courseId: string, userRole: string | undefined) {
+  async listCourseClasses(
+    courseId: string,
+    userId: string,
+    userRole: string | undefined,
+  ) {
     this.assertAdmin(userRole);
 
-    const course = await this.prisma.course.findUnique({
-      where: { id: courseId },
+    const course = await this.coursesRepository.findFirst({
+      where: this.getOwnedWhereClause(userId, userRole, { id: courseId }),
       select: {
         id: true,
         title: true,
@@ -1233,9 +1386,9 @@ export class AdminCoursesService {
       },
     });
 
-    const enrollments = await this.prisma.enrollment.findMany({
+    const enrollments = (await this.enrollmentsRepository.findMany({
       where: { courseId },
-    }) as any[];
+    })) as any[];
 
     const classesWithCounts = classes.map((classItem: any) => {
       const confirmedCount = enrollments.filter(
@@ -1281,13 +1434,14 @@ export class AdminCoursesService {
 
   async createCourseClass(
     courseId: string,
+    userId: string,
     userRole: string | undefined,
     body: { limit: number },
   ) {
     this.assertAdmin(userRole);
 
-    const course = await this.prisma.course.findUnique({
-      where: { id: courseId },
+    const course = await this.coursesRepository.findFirst({
+      where: this.getOwnedWhereClause(userId, userRole, { id: courseId }),
     });
 
     if (!course) {
@@ -1368,15 +1522,30 @@ export class AdminCoursesService {
     });
   }
 
-  async closeCourseClass(classId: string, userRole: string | undefined) {
+  async closeCourseClass(
+    classId: string,
+    userId: string,
+    userRole: string | undefined,
+  ) {
     this.assertAdmin(userRole);
 
     const classItem = await (this.prisma as any).courseClass.findUnique({
       where: { id: classId },
+      include: {
+        course: {
+          select: {
+            createdBy: true,
+          },
+        },
+      },
     });
 
     if (!classItem) {
       throw new NotFoundException('Turma não encontrada');
+    }
+
+    if (userRole !== 'SUPER_ADMIN' && classItem.course.createdBy !== userId) {
+      throw new ForbiddenException('Não autorizado a encerrar esta turma');
     }
 
     if (classItem.status === CourseClassStatus.CLOSED) {
@@ -1392,5 +1561,3 @@ export class AdminCoursesService {
     });
   }
 }
-
-

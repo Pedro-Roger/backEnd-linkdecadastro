@@ -7,10 +7,14 @@ import {
   Query,
   Post,
   Body,
+  Req,
 } from '@nestjs/common';
 import { Services } from '../chat.constants';
 import { ChatService } from '../services/chat.service';
-import { ChatConversationsQueryDto, PaginationQueryDto } from '../dto/pagination.dto';
+import {
+  ChatConversationsQueryDto,
+  PaginationQueryDto,
+} from '../dto/pagination.dto';
 import { JwtAuthGuard } from '../../auth/jwt.guard';
 
 @Controller('chat')
@@ -19,14 +23,20 @@ export class ChatConversationController {
   constructor(
     @Inject(Services.CHAT_SERVICE)
     private readonly chatService: ChatService,
-  ) { }
+  ) {}
 
   @Get('conversations/:type')
   async getConversations(
     @Param('type') type: string,
     @Query() searchParams: ChatConversationsQueryDto,
+    @Req() req: any,
   ) {
-    return this.chatService.getConversations(type, searchParams);
+    return this.chatService.getConversations(
+      type,
+      req.user.id,
+      req.user.role,
+      searchParams,
+    );
   }
 
   @Get('messages/:conversationId')
@@ -48,9 +58,11 @@ export class ChatConversationController {
       fileName?: string;
       caption?: string;
     },
+    @Req() req: any,
   ) {
     return this.chatService.sendMediaMessage(
       type,
+      req.user.id,
       data.phoneNumber,
       data.mediaUrl,
       data.mediaType,
@@ -87,6 +99,9 @@ export class ChatConversationController {
     @Param('conversationId') conversationId: string,
     @Body() body: { clientId: string },
   ) {
-    return (this.chatService as any).linkClient?.(conversationId, body.clientId);
+    return (this.chatService as any).linkClient?.(
+      conversationId,
+      body.clientId,
+    );
   }
 }

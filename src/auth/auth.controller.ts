@@ -62,11 +62,11 @@ export class AuthController {
   //   try {
   //     const googleUser = req.user;
   //     const result = await this.authService.googleLogin(googleUser);
-      
+
   //     // Normaliza a URL do frontend (remove barra final se existir)
   //     const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
   //     const redirectUrl = `${frontendUrl}/auth/google/callback?token=${result.accessToken}&user=${encodeURIComponent(JSON.stringify(result.user))}`;
-      
+
   //     res.redirect(redirectUrl);
   //   } catch (error) {
   //     // Normaliza a URL do frontend (remove barra final se existir)
@@ -75,5 +75,3 @@ export class AuthController {
   //   }
   // }
 }
-
-

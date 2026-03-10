@@ -7,13 +7,17 @@ export class ShareController {
   constructor(private readonly shareService: ShareService) {}
 
   @Get('course/:courseId')
-  async getCourseShare(@Param('courseId') courseId: string, @Res() res: Response) {
+  async getCourseShare(
+    @Param('courseId') courseId: string,
+    @Res() res: Response,
+  ) {
     try {
       const course = await this.shareService.getCoursePreviewData(courseId);
-      
-      const frontendUrl = process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
+
+      const frontendUrl =
+        process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
       const siteUrl = frontendUrl.replace(/\/$/, '');
-      const url = course.slug 
+      const url = course.slug
         ? `${siteUrl}/c/${course.slug}`
         : `${siteUrl}/course/${course.id}`;
 
@@ -36,13 +40,17 @@ export class ShareController {
   }
 
   @Get('event/:eventIdOrSlug')
-  async getEventShare(@Param('eventIdOrSlug') eventIdOrSlug: string, @Res() res: Response) {
+  async getEventShare(
+    @Param('eventIdOrSlug') eventIdOrSlug: string,
+    @Res() res: Response,
+  ) {
     try {
       const event = await this.shareService.getEventPreviewData(eventIdOrSlug);
-      
-      const frontendUrl = process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
+
+      const frontendUrl =
+        process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
       const siteUrl = frontendUrl.replace(/\/$/, '');
-      const url = event.slug 
+      const url = event.slug
         ? `${siteUrl}/e/${event.slug}`
         : `${siteUrl}/register/${event.linkId}`;
 
@@ -65,17 +73,21 @@ export class ShareController {
   }
 
   @Get('enroll/:courseSlugOrId')
-  async getEnrollShare(@Param('courseSlugOrId') courseSlugOrId: string, @Res() res: Response) {
+  async getEnrollShare(
+    @Param('courseSlugOrId') courseSlugOrId: string,
+    @Res() res: Response,
+  ) {
     try {
       // Decodifica o parâmetro da URL
       const decodedParam = decodeURIComponent(courseSlugOrId);
-      
+
       // Busca o curso por slug ou ID
       const course = await this.shareService.getCoursePreviewData(decodedParam);
-      
-      const frontendUrl = process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
+
+      const frontendUrl =
+        process.env.FRONTEND_URL || 'https://linkdecadastro.com.br';
       const siteUrl = frontendUrl.replace(/\/$/, '');
-      const url = course.slug 
+      const url = course.slug
         ? `${siteUrl}/enroll.html?course=${encodeURIComponent(course.slug)}`
         : `${siteUrl}/enroll.html?course=${course.id}`;
 
@@ -97,4 +109,3 @@ export class ShareController {
     }
   }
 }
-

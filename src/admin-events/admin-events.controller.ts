@@ -17,7 +17,7 @@ import { JwtAuthGuard } from '../auth/jwt.guard';
 @UseGuards(JwtAuthGuard)
 @Controller('admin/events')
 export class AdminEventsController {
-  constructor(private readonly adminEventsService: AdminEventsService) {}
+  constructor(private readonly adminEventsService: AdminEventsService) { }
 
   @Patch(':eventId')
   async updateEvent(
@@ -25,34 +25,42 @@ export class AdminEventsController {
     @Req() req: any,
     @Body() body: any,
   ) {
-    return this.adminEventsService.updateEvent(eventId, req.user.role, body);
+    return this.adminEventsService.updateEvent(
+      eventId,
+      req.user.id,
+      req.user.role,
+      body,
+    );
   }
 
   @Delete(':eventId')
   async deleteEvent(@Param('eventId') eventId: string, @Req() req: any) {
-    return this.adminEventsService.deleteEvent(eventId, req.user.role);
+    return this.adminEventsService.deleteEvent(
+      eventId,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Get('history')
   async getHistory(@Req() req: any) {
-    return this.adminEventsService.getHistory(req.user.role);
+    return this.adminEventsService.getHistory(req.user.id, req.user.role);
   }
 
   @Get(':eventId/regions')
-  async getRegions(
-    @Param('eventId') eventId: string,
-    @Req() req: any,
-  ) {
-    return this.adminEventsService.getRegionsSummary(eventId, req.user.role);
+  async getRegions(@Param('eventId') eventId: string, @Req() req: any) {
+    return this.adminEventsService.getRegionsSummary(
+      eventId,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Get(':eventId/registrations')
-  async listRegistrations(
-    @Param('eventId') eventId: string,
-    @Req() req: any,
-  ) {
+  async listRegistrations(@Param('eventId') eventId: string, @Req() req: any) {
     return this.adminEventsService.listEventRegistrations(
       eventId,
+      req.user.id,
       req.user.role,
     );
   }
@@ -75,6 +83,7 @@ export class AdminEventsController {
 
     const result = await this.adminEventsService.exportRegistrations(
       eventId,
+      req.user.id,
       req.user.role,
       format,
       fieldsArray,
@@ -101,6 +110,7 @@ export class AdminEventsController {
   ) {
     return this.adminEventsService.updateMunicipalityLimit(
       limitId,
+      req.user.id,
       req.user.role,
       body,
     );
@@ -108,8 +118,22 @@ export class AdminEventsController {
 
   @Patch('classes/:classId/close')
   async closeClass(@Param('classId') classId: string, @Req() req: any) {
-    return this.adminEventsService.closeClass(classId, req.user.role);
+    return this.adminEventsService.closeClass(
+      classId,
+      req.user.id,
+      req.user.role,
+    );
+  }
+
+  @Delete('registrations/:registrationId')
+  async deleteRegistration(
+    @Param('registrationId') registrationId: string,
+    @Req() req: any,
+  ) {
+    return this.adminEventsService.deleteRegistration(
+      registrationId,
+      req.user.id,
+      req.user.role,
+    );
   }
 }
-
-

@@ -2,13 +2,15 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ParticipantType, MunicipalityClassStatus } from '@prisma/client';
 import { EmailService } from '../email/email.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class RegistrationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
-  ) {}
+    private readonly whatsappService: WhatsAppService,
+  ) { }
 
   async createRegistration(data: {
     eventId: string;
@@ -27,9 +29,9 @@ export class RegistrationsService {
   }) {
     // Verificar se já existe inscrição PARA ESTE EVENTO com este CPF
     const existingRegistration = await this.prisma.registration.findFirst({
-      where: { 
+      where: {
         cpf: data.cpf,
-        eventId: data.eventId
+        eventId: data.eventId,
       },
     });
 
@@ -136,40 +138,40 @@ export class RegistrationsService {
         otherType: true,
         pondCount: true,
         waterArea: true,
-      }
+      },
     });
 
     // Se não achar em registrations, tenta em users
     if (!registration) {
       const user = await this.prisma.user.findFirst({
         where: { cpf },
-         select: {
-            name: true,
-            email: true,
-            phone: true,
-            state: true,
-            city: true,
-            participantType: true,
-            hectares: true,
-            waterArea: true,
-            ponds: true,
-         }
+        select: {
+          name: true,
+          email: true,
+          phone: true,
+          state: true,
+          city: true,
+          participantType: true,
+          hectares: true,
+          waterArea: true,
+          ponds: true,
+        },
       });
-      
+
       if (user) {
-          return {
-              name: user.name,
-              email: user.email,
-              phone: user.phone,
-              state: user.state,
-              city: user.city,
-              participantType: user.participantType,
-              pondCount: user.ponds,
-              waterArea: user.waterArea,
-              // Campos default que o user não tem
-              cep: '',
-              locality: '',
-          }
+        return {
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          state: user.state,
+          city: user.city,
+          participantType: user.participantType,
+          pondCount: user.ponds,
+          waterArea: user.waterArea,
+          // Campos default que o user não tem
+          cep: '',
+          locality: '',
+        };
       }
       return null;
     }
@@ -205,7 +207,7 @@ export class RegistrationsService {
     const participantType =
       data.participantType === 'OUTROS'
         ? ParticipantType.ESTUDANTE
-        : (data.participantType as ParticipantType);
+        : data.participantType;
 
     const registration = await this.createRegistration({
       ...data,
@@ -232,8 +234,15 @@ export class RegistrationsService {
           eventTitle: event.title,
         });
       }
+
+      // Envio de WhatsApp automático
+      await this.whatsappService.sendMessageToPhone(
+        data.phone,
+        `Olá ${data.name.split(' ')[0]}, obrigado por se cadastrar no evento "${event.title}"! Seu cadastro foi confirmado com sucesso. ✅`
+      );
+
     } catch (error) {
-      console.error('Erro ao enviar email:', error);
+      console.error('Erro ao enviar email ou WhatsApp:', error);
     }
 
     return registration;
@@ -259,5 +268,3 @@ export class RegistrationsService {
     });
   }
 }
-
-

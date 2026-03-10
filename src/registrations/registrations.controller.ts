@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Query, Body, Param, NotFoundException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Query,
+  Body,
+  Param,
+  NotFoundException,
+} from '@nestjs/common';
 import { RegistrationsService } from './registrations.service';
 
 @Controller('registrations')
@@ -7,7 +15,8 @@ export class RegistrationsController {
 
   @Post()
   async create(@Body() body: any) {
-    const registration = await this.registrationsService.handleRegistration(body);
+    const registration =
+      await this.registrationsService.handleRegistration(body);
     return registration;
   }
 
@@ -25,5 +34,3 @@ export class RegistrationsController {
     return registration;
   }
 }
-
-

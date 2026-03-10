@@ -41,6 +41,10 @@ import { UserModule } from '../user/user.module';
     InstancesServerService,
     InstancesServerRepository,
   ],
-  exports: [Services.CHAT_SERVICE, InstancesServerService, InstancesServerRepository],
+  exports: [
+    Services.CHAT_SERVICE,
+    InstancesServerService,
+    InstancesServerRepository,
+  ],
 })
-export class ChatModule { }
+export class ChatModule {}

@@ -7,15 +7,19 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   constructor() {
     const clientID = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    
+
     if (!clientID || !clientSecret) {
-      throw new Error('GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET devem estar configurados');
+      throw new Error(
+        'GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET devem estar configurados',
+      );
     }
 
     super({
       clientID,
       clientSecret,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3333/auth/google/callback',
+      callbackURL:
+        process.env.GOOGLE_CALLBACK_URL ||
+        'http://localhost:3333/auth/google/callback',
       scope: ['email', 'profile'],
     });
   }
@@ -29,11 +33,12 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     const { name, emails, photos } = profile;
     const user = {
       email: emails[0].value,
-      name: `${name.givenName || ''} ${name.familyName || ''}`.trim() || emails[0].value.split('@')[0],
+      name:
+        `${name.givenName || ''} ${name.familyName || ''}`.trim() ||
+        emails[0].value.split('@')[0],
       picture: photos?.[0]?.value || null,
       accessToken,
     };
     done(null, user);
   }
 }
-

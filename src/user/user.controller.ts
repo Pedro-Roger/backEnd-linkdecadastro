@@ -3,6 +3,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Param,
   Patch,
   Post,
   Query,
@@ -15,7 +16,7 @@ import { JwtAuthGuard } from '../auth/jwt.guard';
 @UseGuards(JwtAuthGuard)
 @Controller('user')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(private readonly userService: UserService) { }
 
   @Get('profile')
   async getProfile(@Req() req: any) {
@@ -61,7 +62,7 @@ export class UserController {
 @UseGuards(JwtAuthGuard)
 @Controller('admin/users')
 export class AdminUsersController {
-  constructor(private readonly userService: UserService) {}
+  constructor(private readonly userService: UserService) { }
 
   @Get()
   async listUsers(
@@ -69,8 +70,7 @@ export class AdminUsersController {
     @Query('state') state?: string,
     @Query('city') city?: string,
   ) {
-    // Verificar se o usuário é admin
-    if (req.user.role !== 'ADMIN') {
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
       throw new ForbiddenException('Acesso negado');
     }
 
@@ -79,6 +79,37 @@ export class AdminUsersController {
       city: city || undefined,
     });
   }
+
+  @Patch(':userId/role')
+  async updateUserRole(
+    @Param('userId') userId: string,
+    @Body('role') role: any, // Use any to allow string comparison before Prisma
+    @Req() req: any,
+  ) {
+    if (req.user.role !== 'SUPER_ADMIN') {
+      throw new ForbiddenException('Apenas o SUPER_ADMIN pode alterar papéis');
+    }
+
+    return this.userService.updateUserRole(userId, role);
+  }
+
+  @Post()
+  async createUser(
+    @Body()
+    body: {
+      name: string;
+      email: string;
+      password?: string;
+      role: any;
+    },
+    @Req() req: any,
+  ) {
+    if (req.user.role !== 'SUPER_ADMIN') {
+      throw new ForbiddenException(
+        'Apenas o SUPER_ADMIN pode criar novos usuários/administradores',
+      );
+    }
+
+    return this.userService.createUser(body);
+  }
 }
-
-

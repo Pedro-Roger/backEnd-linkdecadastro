@@ -38,9 +38,7 @@ export class NotificationsService {
     status: string,
   ) {
     if (!notificationId || !status) {
-      throw new BadRequestException(
-        'notificationId e status são obrigatórios',
-      );
+      throw new BadRequestException('notificationId e status são obrigatórios');
     }
 
     const notification = await this.prisma.notification.update({
@@ -54,5 +52,3 @@ export class NotificationsService {
     return notification;
   }
 }
-
-

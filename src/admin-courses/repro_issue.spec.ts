@@ -50,8 +50,14 @@ describe('AdminCoursesService', () => {
     };
 
     mockPrismaService.course.findFirst.mockResolvedValue(null);
-    mockPrismaService.course.create.mockResolvedValue({ id: 'course-id', ...courseData });
-    mockPrismaService.course.findUnique.mockResolvedValue({ id: 'course-id', ...courseData });
+    mockPrismaService.course.create.mockResolvedValue({
+      id: 'course-id',
+      ...courseData,
+    });
+    mockPrismaService.course.findUnique.mockResolvedValue({
+      id: 'course-id',
+      ...courseData,
+    });
 
     const result = await service.createCourse('user-id', 'ADMIN', courseData);
     expect(result).toBeDefined();

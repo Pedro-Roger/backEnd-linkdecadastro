@@ -8,18 +8,39 @@ import { MunicipalityClassStatus, ParticipantType } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import PDFDocument from 'pdfkit';
 
+import { EventsRepository } from '../events/events.repository';
+import { RegistrationsRepository } from '../registrations/registrations.repository';
+import { MunicipalitiesRepository } from '../events/municipalities.repository';
+
 @Injectable()
 export class AdminEventsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventsRepository: EventsRepository,
+    private readonly registrationsRepository: RegistrationsRepository,
+    private readonly municipalitiesRepository: MunicipalitiesRepository,
+  ) { }
 
   private assertAdmin(role?: string) {
-    if (role !== 'ADMIN') {
+    if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
       throw new ForbiddenException('Não autorizado');
     }
   }
 
+  private getOwnedWhereClause(
+    userId: string,
+    userRole: string | undefined,
+    otherFilters: any = {},
+  ) {
+    if (userRole?.toUpperCase() === 'SUPER_ADMIN') {
+      return otherFilters;
+    }
+    return { ...otherFilters, createdBy: userId };
+  }
+
   async updateEvent(
     eventId: string,
+    userId: string,
     userRole: string | undefined,
     body: any,
   ) {
@@ -37,34 +58,47 @@ export class AdminEventsService {
       updates.bannerUrl = bannerUrl ? bannerUrl : null;
     }
 
-    const event = await this.prisma.event.update({
+    const event = await this.eventsRepository.findFirst({
+      where: this.getOwnedWhereClause(userId || '', userRole, { id: eventId }),
+    });
+
+    if (!event) {
+      throw new NotFoundException('Evento não encontrado ou acesso negado');
+    }
+
+    return this.eventsRepository.update({
       where: { id: eventId },
       data: updates,
     });
-
-    return event;
   }
 
-  async deleteEvent(eventId: string, userRole: string | undefined) {
+  async deleteEvent(
+    eventId: string,
+    userId: string,
+    userRole: string | undefined,
+  ) {
     this.assertAdmin(userRole);
 
-    const event = await this.prisma.event.findUnique({
-      where: { id: eventId },
+    const event = await this.eventsRepository.findFirst({
+      where: this.getOwnedWhereClause(userId, userRole, { id: eventId }),
     });
 
     if (!event) {
       throw new NotFoundException('Evento não encontrado');
     }
 
-    await this.prisma.event.delete({ where: { id: eventId } });
+    await this.eventsRepository.delete({ where: { id: eventId } });
 
     return { success: true };
   }
 
-  async getHistory(userRole: string | undefined) {
+  async getHistory(userId: string, userRole: string | undefined) {
     this.assertAdmin(userRole);
 
-    const events = await this.prisma.event.findMany({
+    const where = this.getOwnedWhereClause(userId, userRole);
+
+    const events = await this.eventsRepository.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -75,16 +109,17 @@ export class AdminEventsService {
         maxRegistrations: true,
         createdAt: true,
         updatedAt: true,
+        createdBy: true,
       },
     });
 
     const history = await Promise.all(
       events.map(async (event) => {
-        const totalRegistrations = await this.prisma.registration.count({
+        const totalRegistrations = await this.registrationsRepository.count({
           where: { eventId: event.id },
         });
 
-        const municipalities = await this.prisma.municipalityLimit.findMany({
+        const municipalities = await this.municipalitiesRepository.findManyLimits({
           where: { eventId: event.id },
           select: {
             id: true,
@@ -109,6 +144,7 @@ export class AdminEventsService {
         return {
           ...event,
           totalRegistrations,
+          _count: { registrations: totalRegistrations },
           municipalitiesCount: municipalities.length,
           municipalities,
         };
@@ -118,23 +154,35 @@ export class AdminEventsService {
     return history;
   }
 
-  async getRegionsSummary(eventId: string, userRole: string | undefined) {
+  async getRegionsSummary(
+    eventId: string,
+    userId: string,
+    userRole: string | undefined,
+  ) {
     this.assertAdmin(userRole);
 
-    const municipalityLimits = await this.prisma.municipalityLimit.findMany({
+    const whereEvent = this.getOwnedWhereClause(userId, userRole, {
+      id: eventId,
+    });
+    const eventOwned = await this.eventsRepository.findFirst({
+      where: whereEvent,
+    });
+
+    if (!eventOwned) {
+      throw new NotFoundException('Evento não encontrado ou acesso negado');
+    }
+
+    const municipalityLimits = await this.municipalitiesRepository.findManyLimits({
       where: { eventId },
       include: {
         classes: {
           orderBy: { classNumber: 'asc' },
         },
       },
-      orderBy: [
-        { state: 'asc' },
-        { municipality: 'asc' },
-      ],
+      orderBy: [{ state: 'asc' }, { municipality: 'asc' }],
     });
 
-    const registrations = await this.prisma.registration.findMany({
+    const registrations = await this.registrationsRepository.findMany({
       where: { eventId },
       select: {
         id: true,
@@ -166,11 +214,12 @@ export class AdminEventsService {
       }
       const stateInfo = overallByState.get(registration.state)!;
       stateInfo.total += 1;
-      stateInfo.byParticipantType[registration.participantType] =
-        (stateInfo.byParticipantType[registration.participantType] ?? 0) + 1;
+      const pType = registration.participantType as ParticipantType;
+      stateInfo.byParticipantType[pType] =
+        (stateInfo.byParticipantType[pType] ?? 0) + 1;
 
-      overallByType[registration.participantType] =
-        (overallByType[registration.participantType] ?? 0) + 1;
+      overallByType[pType] =
+        (overallByType[pType] ?? 0) + 1;
     });
 
     const limitsWithSummary = municipalityLimits.map((limit) => {
@@ -180,14 +229,14 @@ export class AdminEventsService {
 
       const byParticipantType: Partial<Record<ParticipantType, number>> = {};
       regsForMunicipality.forEach((registration) => {
-        byParticipantType[registration.participantType] =
-          (byParticipantType[registration.participantType] ?? 0) + 1;
+        const pType = registration.participantType as ParticipantType;
+        byParticipantType[pType] =
+          (byParticipantType[pType] ?? 0) + 1;
       });
 
-      const classes = limit.classes.map((classItem) => {
+      const classes = limit.classes.map((classItem: any) => {
         const regsForClass = regsForMunicipality.filter(
-          (registration) =>
-            registration.municipalityClassId === classItem.id,
+          (registration) => registration.municipalityClassId === classItem.id,
         );
 
         return {
@@ -203,7 +252,7 @@ export class AdminEventsService {
       });
 
       const activeClass = classes.find(
-        (classItem) => classItem.status === MunicipalityClassStatus.ACTIVE,
+        (classItem: any) => classItem.status === MunicipalityClassStatus.ACTIVE,
       );
 
       return {
@@ -234,19 +283,27 @@ export class AdminEventsService {
     };
   }
 
-  async listEventRegistrations(eventId: string, userRole: string | undefined) {
+  async listEventRegistrations(
+    eventId: string,
+    userId: string,
+    userRole: string | undefined,
+  ) {
     this.assertAdmin(userRole);
 
-    const event = await this.prisma.event.findUnique({
-      where: { id: eventId },
+    const whereEvent = this.getOwnedWhereClause(userId, userRole, {
+      id: eventId,
+    });
+
+    const event = await this.eventsRepository.findFirst({
+      where: whereEvent,
       select: { id: true, title: true },
     });
 
     if (!event) {
-      throw new NotFoundException('Evento não encontrado');
+      throw new NotFoundException('Evento não encontrado ou acesso negado');
     }
 
-    const registrations = await this.prisma.registration.findMany({
+    const registrations = await this.registrationsRepository.findMany({
       where: { eventId },
       include: {
         municipality: {
@@ -272,6 +329,7 @@ export class AdminEventsService {
 
   async exportRegistrations(
     eventId: string,
+    userId: string,
     userRole: string | undefined,
     formatParam?: string,
     fieldsParam?: string[],
@@ -282,48 +340,50 @@ export class AdminEventsService {
   ) {
     this.assertAdmin(userRole);
 
-    const event = await this.prisma.event.findUnique({
-      where: { id: eventId },
+    const whereEvent = this.getOwnedWhereClause(userId, userRole, {
+      id: eventId,
+    });
+
+    const event = await this.eventsRepository.findFirst({
+      where: whereEvent,
       select: {
         title: true,
       },
     });
 
     if (!event) {
-      throw new NotFoundException('Evento não encontrado');
+      throw new NotFoundException('Evento não encontrado ou acesso negado');
     }
 
     const whereClause: any = { eventId };
     let filenameSuffix = '';
 
     if (classId) {
-       whereClause.municipalityClassId = classId;
-       // Tentar buscar info da turma para nome do arquivo (opcional, mas bom)
-       const classInfo = await this.prisma.municipalityClass.findUnique({
-           where: { id: classId },
-           include: { municipalityLimit: true }
-       });
-       if (classInfo) {
-           filenameSuffix = `-${classInfo.municipalityLimit.municipality}-turma-${classInfo.classNumber}`;
-       }
+      whereClause.municipalityClassId = classId;
+      const classInfo = await this.municipalitiesRepository.findUniqueClass({
+        where: { id: classId },
+        include: { municipalityLimit: true },
+      });
+      if (classInfo) {
+        filenameSuffix = `-${classInfo.municipalityLimit.municipality}-turma-${classInfo.classNumber}`;
+      }
     } else if (municipalityId) {
-       whereClause.municipalityId = municipalityId;
-       const munLimit = await this.prisma.municipalityLimit.findUnique({
-           where: { id: municipalityId }
-       });
-       if (munLimit) {
-           filenameSuffix = `-${munLimit.municipality}-${munLimit.state}`;
-       }
+      whereClause.municipalityId = municipalityId;
+      const munLimit = await this.municipalitiesRepository.findUniqueLimit({
+        where: { id: municipalityId },
+      });
+      if (munLimit) {
+        filenameSuffix = `-${munLimit.municipality}-${munLimit.state}`;
+      }
     } else if (city) {
-       // Filtro por nome da cidade (case insensitive seria ideal, mas Prisma mongo tem limitações as vezes, vamos de exato por enquanto ou mode insensitive)
-       whereClause.city = { equals: city, mode: 'insensitive' };
-       if (state) {
-           whereClause.state = { equals: state, mode: 'insensitive' };
-       }
-       filenameSuffix = `-${city}-${state || ''}`;
+      whereClause.city = { equals: city, mode: 'insensitive' };
+      if (state) {
+        whereClause.state = { equals: state, mode: 'insensitive' };
+      }
+      filenameSuffix = `-${city}-${state || ''}`;
     }
 
-    const registrations = await this.prisma.registration.findMany({
+    const registrations = await this.registrationsRepository.findMany({
       where: whereClause,
       include: {
         municipality: {
@@ -338,10 +398,7 @@ export class AdminEventsService {
           },
         },
       },
-      orderBy: [
-          { city: 'asc' },
-          { name: 'asc' }
-      ],
+      orderBy: [{ city: 'asc' }, { name: 'asc' }],
     });
 
     const participantTypeLabels: Record<ParticipantType, string> = {
@@ -360,7 +417,7 @@ export class AdminEventsService {
     const availableFields = {
       number: {
         label: 'Nº',
-        getter: (_r: any) => 0, // será sobrescrito no momento da geração da linha
+        getter: (_r: any) => 0,
       },
       name: {
         label: 'Nome Completo',
@@ -410,7 +467,7 @@ export class AdminEventsService {
         getter: (r: any) => r.pondCount ?? '-',
       },
       waterArea: {
-        label: 'Lâmina d\'água (ha)',
+        label: "Lâmina d'água (ha)",
         getter: (r: any) => r.waterArea ?? '-',
       },
       municipality: {
@@ -464,39 +521,29 @@ export class AdminEventsService {
     }
 
     const selectedFields = parseFields(fieldsParam);
-
     const headerRow = selectedFields.map((key) => availableFields[key].label);
-    
-    // Construção das linhas de dados com agrupamento por cidade (para CSV/XLSX)
+
     const dataRows: string[][] = [];
     let currentCityCSV = '';
 
     registrations.forEach((reg, index) => {
-        const regCity = (reg.city || 'INDADEFINIDA').toUpperCase();
-        
-        // Inserir separador de grupo se a cidade mudou
-        if (regCity !== currentCityCSV) {
-            currentCityCSV = regCity;
-            
-            // Adiciona linha em branco antes (exceto no primeiro)
-            if (dataRows.length > 0) {
-                dataRows.push(new Array(selectedFields.length).fill(''));
-            }
-            
-            // Adiciona cabeçalho do grupo
-            const groupRow = new Array(selectedFields.length).fill('');
-            groupRow[0] = `MUNICÍPIO: ${regCity}`;
-            dataRows.push(groupRow);
+      const regCity = (reg.city || 'INDADEFINIDA').toUpperCase();
+      if (regCity !== currentCityCSV) {
+        currentCityCSV = regCity;
+        if (dataRows.length > 0) {
+          dataRows.push(new Array(selectedFields.length).fill(''));
         }
+        const groupRow = new Array(selectedFields.length).fill('');
+        groupRow[0] = `MUNICÍPIO: ${regCity}`;
+        dataRows.push(groupRow);
+      }
 
-        const row = selectedFields.map((key) => {
-            const value =
-            key === 'number'
-                ? index + 1
-                : availableFields[key].getter(reg);
-            return value === null || value === undefined ? '' : String(value);
-        });
-        dataRows.push(row);
+      const row = selectedFields.map((key) => {
+        const value =
+          key === 'number' ? index + 1 : availableFields[key].getter(reg);
+        return value === null || value === undefined ? '' : String(value);
+      });
+      dataRows.push(row);
     });
 
     const sanitizedTitle = (event.title + (filenameSuffix || ''))
@@ -509,16 +556,14 @@ export class AdminEventsService {
     if (formatType === 'pdf') {
       const doc = new PDFDocument({ size: 'A4', margin: 40 }) as any;
       const chunks: Buffer[] = [];
-
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-
       const pdfPromise = new Promise<Buffer>((resolve) => {
         doc.on('end', () => resolve(Buffer.concat(chunks)));
       });
 
       doc.fontSize(16).text(`Relatório de Cadastros - ${event.title}`);
       if (filenameSuffix) {
-          doc.fontSize(12).text(filenameSuffix.replace(/-/g, ' ').trim());
+        doc.fontSize(12).text(filenameSuffix.replace(/-/g, ' ').trim());
       }
       doc.moveDown();
 
@@ -526,26 +571,24 @@ export class AdminEventsService {
         doc.fontSize(12).text('Nenhum cadastro encontrado.');
       } else {
         let currentCityPDF = '';
-        
         registrations.forEach((registration, index) => {
           const regCity = (registration.city || 'INDADEFINIDA').toUpperCase();
-          
-          // Agrupamento visual no PDF
           if (regCity !== currentCityPDF) {
-              currentCityPDF = regCity;
-              if (index > 0) doc.addPage(); // Nova página para cada cidade? Ou apenas destaque? 
-              // Melhor apenas destaque + espaço, addPage pode gastar muito papel.
-              // Mas se o usuário quer "separar", addPage é o mais garantido.
-              // Vou usar addPage se não for o primeiro, para separar bem.
-              else doc.moveDown(); 
-              
-              doc.font('Helvetica-Bold').fontSize(14).fillColor('#003366').text(`MUNICÍPIO: ${regCity}`);
-              doc.fillColor('black').moveDown(0.5);
+            currentCityPDF = regCity;
+            if (index > 0) doc.addPage();
+            else doc.moveDown();
+            doc
+              .font('Helvetica-Bold')
+              .fontSize(14)
+              .fillColor('#003366')
+              .text(`MUNICÍPIO: ${regCity}`);
+            doc.fillColor('black').moveDown(0.5);
           }
-
-          doc.fontSize(12).font('Helvetica-Bold').text(`Participante ${index + 1}`);
+          doc
+            .fontSize(12)
+            .font('Helvetica-Bold')
+            .text(`Participante ${index + 1}`);
           doc.moveDown(0.2);
-
           selectedFields.forEach((fieldKey) => {
             if (fieldKey === 'number') return;
             const descriptor = availableFields[fieldKey];
@@ -555,18 +598,13 @@ export class AdminEventsService {
               .fontSize(11)
               .text(`${descriptor.label}: ${value ?? '-'}`);
           });
-
           doc.moveDown();
         });
       }
-
       doc.end();
-
       const pdfBuffer = await pdfPromise;
-      const arrayBuffer = new Uint8Array(pdfBuffer).buffer as ArrayBuffer;
-
       return {
-        buffer: arrayBuffer,
+        buffer: pdfBuffer,
         contentType: 'application/pdf',
         filename: `cadastros-${sanitizedTitle}.pdf`,
       };
@@ -578,9 +616,10 @@ export class AdminEventsService {
 
     if (formatType === 'csv') {
       const csv = XLSX.utils.sheet_to_csv(worksheet, { FS: ';' });
-      // Adicionar BOM explicitamente para garantir acentuação no Excel
-      const csvBuffer = Buffer.concat([Buffer.from('\uFEFF'), Buffer.from(csv, 'utf-8')]);
-      
+      const csvBuffer = Buffer.concat([
+        Buffer.from('\uFEFF'),
+        Buffer.from(csv, 'utf-8'),
+      ]);
       return {
         buffer: csvBuffer,
         contentType: 'text/csv; charset=utf-8',
@@ -589,7 +628,6 @@ export class AdminEventsService {
     }
 
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-
     return {
       buffer,
       contentType:
@@ -600,20 +638,28 @@ export class AdminEventsService {
 
   async updateMunicipalityLimit(
     limitId: string,
+    userId: string,
     userRole: string | undefined,
     body: { defaultLimit?: number },
   ) {
     this.assertAdmin(userRole);
-
-    const limit = await this.prisma.municipalityLimit.findUnique({
+    const limit = await this.municipalitiesRepository.findUniqueLimit({
       where: { id: limitId },
+      include: {
+        event: {
+          select: { createdBy: true },
+        },
+      },
     });
 
     if (!limit) {
       throw new NotFoundException('Limite de município não encontrado');
     }
 
-    return this.prisma.municipalityLimit.update({
+    if (userRole !== 'SUPER_ADMIN' && limit.event.createdBy !== userId) {
+      throw new ForbiddenException('Não autorizado a alterar este limite');
+    }
+    return this.municipalitiesRepository.updateLimit({
       where: { id: limitId },
       data: {
         defaultLimit: body.defaultLimit,
@@ -621,22 +667,38 @@ export class AdminEventsService {
     });
   }
 
-  async closeClass(classId: string, userRole: string | undefined) {
+  async closeClass(
+    classId: string,
+    userId: string,
+    userRole: string | undefined,
+  ) {
     this.assertAdmin(userRole);
-
-    const classItem = await this.prisma.municipalityClass.findUnique({
+    const classItem = await this.municipalitiesRepository.findUniqueClass({
       where: { id: classId },
+      include: {
+        municipalityLimit: {
+          include: {
+            event: {
+              select: { createdBy: true },
+            },
+          },
+        },
+      },
     });
-
     if (!classItem) {
       throw new NotFoundException('Turma não encontrada');
     }
 
+    if (
+      userRole !== 'SUPER_ADMIN' &&
+      classItem.municipalityLimit.event.createdBy !== userId
+    ) {
+      throw new ForbiddenException('Não autorizado a encerrar esta turma');
+    }
     if (classItem.status === MunicipalityClassStatus.CLOSED) {
       throw new ForbiddenException('Turma já está encerrada');
     }
-
-    return this.prisma.municipalityClass.update({
+    return this.municipalitiesRepository.updateClass({
       where: { id: classId },
       data: {
         status: MunicipalityClassStatus.CLOSED,
@@ -644,6 +706,43 @@ export class AdminEventsService {
       },
     });
   }
+
+  async deleteRegistration(
+    registrationId: string,
+    userId: string,
+    userRole: string | undefined,
+  ) {
+    this.assertAdmin(userRole);
+
+    const registration = await this.prisma.registration.findFirst({
+      where: { id: registrationId },
+      include: {
+        event: {
+          select: { createdBy: true },
+        },
+      },
+    });
+
+    if (!registration) {
+      throw new NotFoundException('Registro não encontrado');
+    }
+
+    if (userRole !== 'SUPER_ADMIN' && registration.event.createdBy !== userId) {
+      throw new ForbiddenException('Não autorizado a excluir este registro');
+    }
+
+    // Se estiver em uma turma, decrementa o contador
+    if (registration.municipalityClassId) {
+      await this.municipalitiesRepository.updateClass({
+        where: { id: registration.municipalityClassId },
+        data: {
+          currentCount: { decrement: 1 },
+        },
+      });
+    }
+
+    await this.prisma.registration.delete({ where: { id: registrationId } });
+
+    return { success: true };
+  }
 }
-
-

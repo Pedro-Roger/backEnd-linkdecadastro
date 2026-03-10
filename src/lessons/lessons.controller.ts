@@ -26,11 +26,7 @@ export class LessonsController {
     @Req() req: any,
     @Body() body: { content: string },
   ) {
-    return this.lessonsService.addComment(
-      req.user.id,
-      lessonId,
-      body.content,
-    );
+    return this.lessonsService.addComment(req.user.id, lessonId, body.content);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -40,11 +36,7 @@ export class LessonsController {
     @Req() req: any,
     @Body() body: { watchedTime: number; completed: boolean },
   ) {
-    return this.lessonsService.updateProgress(
-      req.user.id,
-      lessonId,
-      body,
-    );
+    return this.lessonsService.updateProgress(req.user.id, lessonId, body);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -53,5 +45,3 @@ export class LessonsController {
     return this.lessonsService.getProgress(req.user.id, lessonId);
   }
 }
-
-

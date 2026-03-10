@@ -9,4 +9,3 @@ import { PrismaModule } from '../prisma/prisma.module';
   providers: [ShareService],
 })
 export class ShareModule {}
-

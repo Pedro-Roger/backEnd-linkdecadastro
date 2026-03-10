@@ -1,19 +1,25 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { EventsRepository } from './events.repository';
 
 @Injectable()
 export class EventsService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly eventsRepository: EventsRepository) { }
 
-  async listEvents(userRole: string | undefined) {
+  async listEvents(userId: string | undefined, userRole: string | undefined) {
     const where: any = {};
+    const isAnyAdmin = userRole?.toUpperCase() === 'ADMIN' || userRole?.toUpperCase() === 'SUPER_ADMIN';
 
-    // Se não for admin, mostrar apenas eventos ativos e não ocultos
-    if (userRole !== 'ADMIN') {
+    if (isAnyAdmin) {
+      where.createdBy = userId;
+    } else {
       where.status = 'ACTIVE';
     }
 
-    return this.prisma.event.findMany({
+    return this.eventsRepository.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -25,18 +31,24 @@ export class EventsService {
   }
 
   async createEvent(userId: string, userRole: string | undefined, body: any) {
-    if (!userRole || userRole !== 'ADMIN') {
+    if (userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
       throw new ForbiddenException('Não autorizado');
     }
 
-    const { title, description, bannerUrl, maxRegistrations, slug, status, municipalities } = body;
+    const {
+      title,
+      description,
+      bannerUrl,
+      maxRegistrations,
+      slug,
+      status,
+      municipalities,
+    } = body;
 
-    // Slug já vem limpo pelo DTO (undefined se vazio)
-    let normalizedSlug = slug;
-
+    const normalizedSlug = slug;
     const linkId = `evt-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.eventsRepository.transaction(async (tx) => {
       const event = await tx.event.create({
         data: {
           title,
@@ -50,7 +62,11 @@ export class EventsService {
         },
       });
 
-      if (municipalities && Array.isArray(municipalities) && municipalities.length > 0) {
+      if (
+        municipalities &&
+        Array.isArray(municipalities) &&
+        municipalities.length > 0
+      ) {
         await tx.municipalityLimit.createMany({
           data: municipalities.map((m: any) => ({
             eventId: event.id,
@@ -66,7 +82,7 @@ export class EventsService {
   }
 
   async getEventByLink(linkId: string) {
-    const event = await this.prisma.event.findUnique({
+    const event = await this.eventsRepository.findUnique({
       where: { linkId },
       include: {
         _count: {
@@ -88,7 +104,7 @@ export class EventsService {
 
   async getEventBySlug(slug: string) {
     const normalizedSlug = slug.toLowerCase().trim();
-    const event = await this.prisma.event.findUnique({
+    const event = await this.eventsRepository.findUnique({
       where: { slug: normalizedSlug },
       include: {
         _count: {
@@ -108,5 +124,3 @@ export class EventsService {
     return event;
   }
 }
-
-
