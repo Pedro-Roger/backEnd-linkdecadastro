@@ -1,13 +1,13 @@
-node_modules
+# Environment
+.env
 
-# WhatsApp session data
-.wwebjs_auth/
-.wwebjs_cache/
+# Dependencies
+node_modules/
 
 # Build artifacts
 dist/
 
-# Environment
-.env
-node_modules
-node_modules
+# WhatsApp session data
+.wwebjs_auth/
+.wwebjs_cache/
+.baileys_auth/
