@@ -1,18 +1,14 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import makeWASocket, {
-  DisconnectReason,
-  useMultiFileAuthState,
-  fetchLatestBaileysVersion,
-  delay,
-  WASocket,
-} from '@whiskeysockets/baileys';
 import * as QRCode from 'qrcode';
 import { join } from 'path';
 import { existsSync, mkdirSync, rmSync } from 'fs';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import { AiChatService } from './ai-chat.service';
+
+// We'll import types only to avoid runtime require() calls
+import type { WASocket } from '@whiskeysockets/baileys';
 
 export enum WhatsAppStatus {
   DISCONNECTED = 'DISCONNECTED',
@@ -46,6 +42,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private RETRY_INTERVAL = 5000;
   private MAX_RETRIES = 5;
 
+  private baileysModule: any = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiChatService: AiChatService
@@ -54,6 +52,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     if (!existsSync(this.authBaseDir)) {
       mkdirSync(this.authBaseDir, { recursive: true });
     }
+  }
+
+  private async getBaileys() {
+    if (!this.baileysModule) {
+      this.baileysModule = await import('@whiskeysockets/baileys');
+    }
+    return this.baileysModule;
   }
 
   async onModuleInit() {
@@ -100,6 +105,12 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
+      const {
+        default: makeWASocket,
+        useMultiFileAuthState,
+        fetchLatestBaileysVersion,
+      } = await this.getBaileys();
+
       instance.status = WhatsAppStatus.CONNECTING;
       const sessionPath = this.getSessionPath(sessionId);
       const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
@@ -149,6 +160,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         }
 
         if (connection === 'close') {
+          const { DisconnectReason } = await this.getBaileys();
           const shouldReconnect =
             (lastDisconnect?.error as Boom)?.output?.statusCode !==
             DisconnectReason.loggedOut;
@@ -295,6 +307,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   async requestPairingCode(sessionId: string, phoneNumber: string) {
     const instance = this.getInstance(sessionId);
+    const { delay } = await this.getBaileys();
     if (!instance.socket) {
       await this.initializeClient(sessionId);
       await delay(2000);
@@ -357,6 +370,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         }
         await instance.socket.sendMessage(targetJid, payload);
         resultados.push({ contato: p.id_contato, sucesso: true });
+        const { delay } = await this.getBaileys();
         await delay(3000);
       } catch (err: any) {
         resultados.push({ contato: p.id_contato, sucesso: false, erro: err.message });
