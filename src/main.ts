@@ -21,6 +21,9 @@ async function bootstrap() {
     'https://www.linkdecadastro.com.br',
     'http://localhost:5173',
     'http://localhost:3000',
+    'https://linkdecadastro-app.vercel.app',
+    'https:/wwww.linkdecadastro-app.vercel.app',
+
     process.env.FRONTEND_URL || 'http://localhost:5173',
   ].filter(Boolean); // Remove valores undefined/null
 

@@ -32,7 +32,8 @@ export const bootstrap = async (expressInstance: express.Express) => {
     });
 
     // Serve static files if needed
-    const uploadsRoot = join(process.cwd(), 'public', 'uploads');
+    const uploadsRoot =
+      process.env.UPLOAD_DIR || join(process.cwd(), 'public', 'uploads');
     app.use('/uploads', express.static(uploadsRoot));
 
     await app.init();
