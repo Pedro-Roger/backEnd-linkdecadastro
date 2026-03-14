@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
 import { ExpressAdapter } from '@nestjs/platform-express';
@@ -24,8 +25,17 @@ export const bootstrap = async (expressInstance: express.Express) => {
       }),
     );
 
+    const allowedOrigins = [
+      'https://linkdecadastro.com.br',
+      'https://www.linkdecadastro.com.br',
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'https://linkdecadastro-app.vercel.app',
+      process.env.FRONTEND_URL,
+    ].filter(Boolean) as string[];
+
     app.enableCors({
-      origin: true,
+      origin: allowedOrigins.length > 0 ? allowedOrigins : true,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
@@ -35,6 +45,12 @@ export const bootstrap = async (expressInstance: express.Express) => {
     const uploadsRoot =
       process.env.UPLOAD_DIR || join(process.cwd(), 'public', 'uploads');
     app.use('/uploads', express.static(uploadsRoot));
+
+    if (!process.env.DATABASE_URL) {
+      console.error('DATABASE_URL is not defined in environment variables');
+    } else {
+        console.log('DATABASE_URL is defined');
+    }
 
     await app.init();
     isAppInitialized = true;
