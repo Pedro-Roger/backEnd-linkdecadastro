@@ -62,7 +62,7 @@ export const bootstrap = async (expressInstance: express.Express) => {
 };
 
 // Middleware to ensure app is bootstrapped
-server.all('*', async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+server.use(async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (!isAppInitialized) {
     try {
       await bootstrap(server);
