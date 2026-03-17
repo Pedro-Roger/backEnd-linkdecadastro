@@ -116,7 +116,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
       const { version } = await fetchLatestBaileysVersion();
 
-      instance.socket = makeWASocket({
+      const socket = makeWASocket({
         version,
         logger: pino({ level: 'silent' }) as any,
         auth: state,
@@ -124,19 +124,21 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         connectTimeoutMs: 60000,
       });
 
-      instance.socket.ev.on('creds.update', saveCreds);
+      instance.socket = socket;
 
-      instance.socket.ev.on('messaging-history.set', ({ chats, contacts }) => {
+      socket.ev.on('creds.update', saveCreds);
+
+      socket.ev.on('messaging-history.set', ({ chats, contacts }: { chats: any[], contacts: any[] }) => {
         chats.forEach(chat => { if (chat.id) instance.chats.set(chat.id, chat); });
         contacts.forEach(contact => { if (contact.id) instance.contacts.set(contact.id, contact); });
       });
 
-      instance.socket.ev.on('chats.upsert', (chats) => {
+      socket.ev.on('chats.upsert', (chats: any[]) => {
         chats.forEach(chat => { if (chat.id) instance.chats.set(chat.id, chat); });
       });
 
-      instance.socket.ev.on('chats.update', (updates) => {
-        updates.forEach(update => {
+      socket.ev.on('chats.update', (updates: any[]) => {
+        updates.forEach((update: any) => {
           if (update.id) {
             const chat = instance.chats.get(update.id);
             if (chat) instance.chats.set(update.id, { ...chat, ...update });
@@ -144,11 +146,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         });
       });
 
-      instance.socket.ev.on('contacts.upsert', (contacts) => {
-        contacts.forEach(contact => { if (contact.id) instance.contacts.set(contact.id, contact); });
+      socket.ev.on('contacts.upsert', (contacts: any[]) => {
+        contacts.forEach((contact: any) => { if (contact.id) instance.contacts.set(contact.id, contact); });
       });
 
-      instance.socket.ev.on('connection.update', async (update: any) => {
+      socket.ev.on('connection.update', async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
@@ -184,7 +186,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           instance.qrCodeData = null;
           instance.retryCount = 0;
 
-          const user = instance.socket?.user;
+          const user = socket.user;
           if (user?.id) {
             const phone = user.id.split(':')[0].split('@')[0];
             instance.phoneNumber = phone;
@@ -196,7 +198,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         }
       });
 
-      instance.socket.ev.on('messages.upsert', async (m) => {
+      socket.ev.on('messages.upsert', async (m: any) => {
         if (m.type === 'notify') {
           for (const msg of m.messages) {
             if (msg.message) {
@@ -209,8 +211,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
                 // Tenta pegar a foto de perfil se for nova conversa
                 let profilePicUrl = undefined;
                 try {
-                  if (!msg.key.fromMe && instance.socket) {
-                    profilePicUrl = await instance.socket.profilePictureUrl(remoteJid, 'image').catch(() => undefined);
+                  if (!msg.key.fromMe) {
+                    profilePicUrl = await socket.profilePictureUrl(remoteJid, 'image').catch(() => undefined);
                   }
                 } catch (e) { }
 
@@ -225,11 +227,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               // IA Auto-reply (only if not from me)
               if (!msg.key.fromMe && !remoteJid.includes('@g.us')) {
                 const phoneNumber = remoteJid.split('@')[0];
-                if (phoneNumber && textMessage && instance.socket) {
+                if (phoneNumber && textMessage) {
                   try {
                     const aiResponse = await this.aiChatService.consultarAssistente(textMessage, phoneNumber);
                     if (aiResponse) {
-                      await instance.socket.sendMessage(remoteJid, { text: aiResponse });
+                      await socket.sendMessage(remoteJid, { text: aiResponse });
                     }
                   } catch (err) {
                     console.error('Erro ao processar mensagem com IA:', err);
