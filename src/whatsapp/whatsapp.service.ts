@@ -52,6 +52,12 @@ export interface ContactInfoResult {
   userId?: string;
   name: string | null;
   role: string | null;
+  email?: string | null;
+  phone?: string | null;
+  city?: string | null;
+  state?: string | null;
+  participantType?: string | null;
+  source?: 'user' | 'registration' | 'unknown';
   courses: string[];
   events: string[];
 }
@@ -287,6 +293,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     try {
       const {
+        Browsers,
         default: makeWASocket,
         fetchLatestBaileysVersion,
       } = await this.getBaileys();
@@ -299,13 +306,17 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         version,
         logger: pino({ level: 'silent' }) as any,
         auth: state,
-        browser: ['LinkDeCadastro', 'Chrome', '1.0.0'],
+        browser: Browsers.windows('Desktop'),
         connectTimeoutMs: 60000,
+        markOnlineOnConnect: false,
       });
 
       instance.socket = socket;
 
-      socket.ev.on('creds.update', saveCreds);
+      socket.ev.on('creds.update', async () => {
+        console.log(`[WhatsApp Debug] creds.update`, { sessionId });
+        await saveCreds();
+      });
 
       socket.ev.on('messaging-history.set', ({ chats, contacts }: { chats: any[], contacts: any[] }) => {
         chats.forEach(chat => { if (chat.id) instance.chats.set(chat.id, chat); });
@@ -331,6 +342,22 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
       socket.ev.on('connection.update', async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
+        const disconnectCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+
+        console.log(`[WhatsApp Debug] connection.update`, {
+          sessionId,
+          connection,
+          hasQr: Boolean(qr),
+          disconnectCode,
+          retryCount: instance.retryCount,
+          lastDisconnect:
+            lastDisconnect?.error instanceof Error
+              ? {
+                  name: lastDisconnect.error.name,
+                  message: lastDisconnect.error.message,
+                }
+              : lastDisconnect?.error,
+        });
 
         if (qr) {
           instance.status = WhatsAppStatus.QR_CODE;
@@ -338,6 +365,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             qr,
             base64: await QRCode.toDataURL(qr),
           };
+
+          await this.prisma.chatChannel.update({
+            where: { id: sessionId },
+            data: { status: 'QR_CODE' },
+          });
         }
 
         if (connection === 'close') {
@@ -350,6 +382,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             instance.status = WhatsAppStatus.DISCONNECTED;
             instance.socket = null;
             instance.qrCodeData = null;
+            await this.prisma.chatChannel.update({
+              where: { id: sessionId },
+              data: { status: 'DISCONNECTED', phone_number: null },
+            });
             if (instance.retryCount < this.MAX_RETRIES) {
               instance.retryCount++;
               setTimeout(() => this.initializeClient(sessionId), this.RETRY_INTERVAL);
@@ -358,8 +394,18 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             instance.status = WhatsAppStatus.DISCONNECTED;
             instance.retryCount = 0;
             instance.socket = null;
+            await this.prisma.chatChannel.update({
+              where: { id: sessionId },
+              data: { status: 'DISCONNECTED', phone_number: null },
+            });
             await this.clearAuthRecord(sessionId);
           }
+        } else if (connection === 'connecting') {
+          instance.status = WhatsAppStatus.CONNECTING;
+          await this.prisma.chatChannel.update({
+            where: { id: sessionId },
+            data: { status: 'CONNECTING' },
+          });
         } else if (connection === 'open') {
           instance.status = WhatsAppStatus.READY;
           instance.qrCodeData = null;
@@ -462,6 +508,47 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async deleteSession(sessionId: string) {
+    const instance = this.instances.get(sessionId);
+    if (instance) {
+      if (instance.socket) {
+        try {
+          await instance.socket.logout();
+        } catch (error) {}
+
+        try {
+          instance.socket.end(undefined);
+        } catch (error) {}
+      }
+
+      this.instances.delete(sessionId);
+    }
+
+    this.messages.forEach((_, key) => {
+      if (key.startsWith(`${sessionId}:`)) {
+        this.messages.delete(key);
+      }
+    });
+
+    await this.clearAuthRecord(sessionId);
+
+    await this.prisma.chatMessage.deleteMany({
+      where: { channel_id: sessionId },
+    });
+
+    await this.prisma.chatConversation.deleteMany({
+      where: { channel_id: sessionId },
+    });
+
+    await this.prisma.chatChannelMember.deleteMany({
+      where: { channel_id: sessionId },
+    });
+
+    await this.prisma.chatChannel.delete({
+      where: { id: sessionId },
+    });
+  }
+
   async getStatus(sessionId: string) {
     const instance = this.getInstance(sessionId);
     if (
@@ -508,7 +595,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   async listUserSessions(userId: string) {
     const members = await this.prisma.chatChannelMember.findMany({
-      where: { user_id: userId },
+      where: {
+        user_id: userId,
+      },
       include: { channels: true }
     });
     return members.map(m => m.channels);
@@ -519,7 +608,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       where: {
         user_id: userId,
         channel_id: sessionId,
-        deleted_at: null,
       },
     });
 
@@ -534,12 +622,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         instance_name: name,
         name: name,
         status: 'DISCONNECTED',
+        deleted_at: null,
       }
     });
     await this.prisma.chatChannelMember.create({
       data: {
         channel_id: channel.id,
-        user_id: userId
+        user_id: userId,
+        deleted_at: null,
       }
     });
     return channel;
@@ -648,6 +738,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
       chatMap.set(conversation.provider_uid, {
         id: conversation.provider_uid,
+        conversationId: conversation.id,
+        channelId: conversation.channel_id,
         jid: conversation.provider_uid,
         name: fallbackName,
         lastMessage:
@@ -1005,13 +1097,33 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!user && registrations.length === 0) {
-      return { userId: undefined, name: null, role: null, courses: [], events: [] };
+      return {
+        userId: undefined,
+        name: null,
+        role: null,
+        email: null,
+        phone: phoneVariants[0] || null,
+        city: null,
+        state: null,
+        participantType: null,
+        source: 'unknown',
+        courses: [],
+        events: [],
+      };
     }
+
+    const fallbackRegistration = registrations[0];
 
     return {
       userId: user?.id,
-      name: user?.name || registrations[0]?.name,
-      role: user?.participantType || registrations[0]?.participantType,
+      name: user?.name || fallbackRegistration?.name,
+      role: user?.participantType || fallbackRegistration?.participantType,
+      email: user?.email || null,
+      phone: user?.phone || fallbackRegistration?.phone || phoneVariants[0] || null,
+      city: user?.city || fallbackRegistration?.city || null,
+      state: user?.state || fallbackRegistration?.state || null,
+      participantType: user?.participantType || fallbackRegistration?.participantType || null,
+      source: user ? 'user' : 'registration',
       courses: user?.enrollments.map(e => e.course.title) || [],
       events: [...new Set([
         ...(user?.registrations.map(r => r.event.title) || []),

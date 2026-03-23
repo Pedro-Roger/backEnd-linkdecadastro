@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   HttpException,
   HttpStatus,
+  Param,
   Post,
   Query,
   Req,
@@ -17,6 +19,10 @@ import { WhatsAppService } from './whatsapp.service';
 @Controller('api/whatsapp')
 export class WhatsAppController {
   constructor(private readonly whatsappService: WhatsAppService) { }
+
+  private debug(label: string, payload: Record<string, any>) {
+    console.log(`[WhatsApp Debug] ${label}`, payload);
+  }
 
   private rethrow(error: any, fallbackStatus = HttpStatus.INTERNAL_SERVER_ERROR): never {
     if (error instanceof HttpException) {
@@ -35,6 +41,13 @@ export class WhatsAppController {
         req.user.id,
         sessionId,
       );
+
+      this.debug('getActiveSessionId', {
+        userId: req.user?.id,
+        userEmail: req.user?.email,
+        sessionId,
+        userHasAccessToSession: hasAccess,
+      });
 
       if (!hasAccess) {
         throw new ForbiddenException('Voce nao tem acesso a esta sessao de WhatsApp.');
@@ -56,6 +69,12 @@ export class WhatsAppController {
   async listSessions(@Req() req: any) {
     try {
       const sessions = await this.whatsappService.listUserSessions(req.user.id);
+      this.debug('listSessions', {
+        userId: req.user?.id,
+        userEmail: req.user?.email,
+        count: sessions.length,
+        sessionIds: sessions.map((session) => session.id),
+      });
       return { success: true, sessions };
     } catch (error: any) {
       this.rethrow(error);
@@ -66,6 +85,12 @@ export class WhatsAppController {
   async createSession(@Req() req: any, @Body('name') name: string) {
     try {
       const session = await this.whatsappService.createSession(req.user.id, name || 'Novo WhatsApp');
+      this.debug('createSession', {
+        userId: req.user?.id,
+        userEmail: req.user?.email,
+        createdSessionId: session.id,
+        createdSessionName: session.instance_name,
+      });
       return { success: true, session };
     } catch (error: any) {
       this.rethrow(error);
@@ -116,6 +141,17 @@ export class WhatsAppController {
     }
   }
 
+  @Delete('sessions/:sessionId')
+  async deleteSession(@Req() req: any, @Param('sessionId') sessionId: string) {
+    try {
+      const sid = await this.getActiveSessionId(req, sessionId);
+      await this.whatsappService.deleteSession(sid);
+      return { success: true, message: 'Conta de WhatsApp removida com sucesso.' };
+    } catch (error: any) {
+      this.rethrow(error);
+    }
+  }
+
   @Get('participantes')
   async getParticipantes() {
     try {
@@ -159,7 +195,7 @@ export class WhatsAppController {
   async getMessages(@Req() req: any, @Query('sessionId') sessionId: string, @Query('jid') jid: string) {
     try {
       const sid = await this.getActiveSessionId(req, sessionId);
-      const messages = this.whatsappService.getMessages(sid, jid);
+      const messages = await this.whatsappService.getMessages(sid, jid);
       return { success: true, messages };
     } catch (error: any) {
       this.rethrow(error);

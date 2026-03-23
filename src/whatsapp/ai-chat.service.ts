@@ -35,13 +35,6 @@ export class AiChatService {
     sessionId: string;
     remoteJid: string;
   }) {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-
-    if (!apiKey) {
-      console.warn('OPENROUTER_API_KEY nao esta configurada no .env.');
-      return null;
-    }
-
     const { perguntaUsuario, telefoneDoUsuario, sessionId, remoteJid } = params;
 
     const resolvedAgent = await this.agentsService.resolveConversationAgent(
@@ -50,6 +43,13 @@ export class AiChatService {
     );
 
     if (resolvedAgent.mode === 'HUMAN' || resolvedAgent.mode === 'COPILOT') {
+      return null;
+    }
+
+    const apiKey = resolvedAgent.agent?.api_key || process.env.OPENROUTER_API_KEY;
+
+    if (!apiKey) {
+      console.warn('Nenhuma API key foi configurada para o agente ou para o backend.');
       return null;
     }
 

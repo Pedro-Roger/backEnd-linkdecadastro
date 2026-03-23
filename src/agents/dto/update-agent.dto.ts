@@ -27,6 +27,16 @@ export class UpdateAgentDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(255)
+  apiKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  apiKeyLabel?: string;
+
+  @IsOptional()
+  @IsString()
   instructions?: string;
 
   @IsOptional()
@@ -44,6 +54,10 @@ export class UpdateAgentDto {
   @IsOptional()
   @IsArray()
   allowedChannelIds?: string[];
+
+  @IsOptional()
+  @IsString()
+  boundChannelId?: string;
 
   @IsOptional()
   @IsString()

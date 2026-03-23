@@ -25,6 +25,9 @@ export interface ServiceAgent {
   is_active: boolean;
   tools: string[];
   allowed_channel_ids: string[];
+  bound_channel_id?: string | null;
+  api_key?: string | null;
+  api_key_label?: string | null;
   default_mode: ConversationMode;
   provider: string;
   provider_agent_id?: string | null;
@@ -170,6 +173,9 @@ export class AgentsService {
       isActive: agent.is_active,
       tools: agent.tools || [],
       allowedChannelIds: agent.allowed_channel_ids || [],
+      boundChannelId: agent.bound_channel_id || null,
+      hasCustomApiKey: Boolean(agent.api_key),
+      apiKeyLabel: agent.api_key_label || null,
       defaultMode: agent.default_mode,
       provider: agent.provider,
       providerAgentId: agent.provider_agent_id || null,
@@ -296,6 +302,9 @@ export class AgentsService {
       is_active: body.isActive ?? true,
       tools: (body.tools || []).filter((tool) => this.availableTools.includes(tool)),
       allowed_channel_ids: body.allowedChannelIds || [],
+      bound_channel_id: body.boundChannelId || null,
+      api_key: body.apiKey?.trim() || null,
+      api_key_label: body.apiKeyLabel?.trim() || null,
       default_mode: body.defaultMode || 'COPILOT',
       provider: 'OPENAI_RESPONSES',
       provider_agent_id: null,
@@ -338,6 +347,13 @@ export class AgentsService {
         ? body.tools.filter((tool) => this.availableTools.includes(tool))
         : current.tools,
       allowed_channel_ids: body.allowedChannelIds ?? current.allowed_channel_ids,
+      bound_channel_id: body.boundChannelId ?? current.bound_channel_id ?? null,
+      api_key:
+        body.apiKey !== undefined ? body.apiKey?.trim() || null : current.api_key ?? null,
+      api_key_label:
+        body.apiKeyLabel !== undefined
+          ? body.apiKeyLabel?.trim() || null
+          : current.api_key_label ?? null,
       default_mode: body.defaultMode ?? current.default_mode,
       updated_at: new Date(),
     };
@@ -479,6 +495,11 @@ export class AgentsService {
       if (!found.is_active) {
         throw new BadRequestException('O agente selecionado está inativo.');
       }
+      if (found.bound_channel_id && found.bound_channel_id !== conversation.channel_id) {
+        throw new BadRequestException(
+          'O agente selecionado está vinculado a outro número de WhatsApp.',
+        );
+      }
       agent = found;
     }
 
@@ -572,9 +593,14 @@ export class AgentsService {
     });
 
     if (!conversation) {
+      const channelBoundAgent = await this.findOne<ServiceAgent>(AGENTS_COLLECTION, {
+        bound_channel_id: sessionId,
+        is_active: true,
+      });
+
       return {
-        mode: 'HUMAN',
-        agent: null,
+        mode: channelBoundAgent?.default_mode || 'HUMAN',
+        agent: channelBoundAgent || null,
         route: null,
       };
     }
@@ -584,10 +610,15 @@ export class AgentsService {
     });
 
     if (!route) {
+      const channelBoundAgent = await this.findOne<ServiceAgent>(AGENTS_COLLECTION, {
+        bound_channel_id: sessionId,
+        is_active: true,
+      });
+
       return {
         conversationId: conversation.id,
-        mode: 'HUMAN',
-        agent: null,
+        mode: channelBoundAgent?.default_mode || 'HUMAN',
+        agent: channelBoundAgent || null,
         route: null,
       };
     }
