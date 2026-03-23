@@ -5,11 +5,13 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  IsUrl,
   Matches,
   Min,
   ValidateNested,
 } from 'class-validator';
+
+const BANNER_VALUE_REGEX =
+  /^(https?:\/\/.+|\/.+|data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)$/;
 
 export class MunicipalityLimitDto {
   @IsString()
@@ -32,16 +34,19 @@ export class MunicipalityLimitDto {
 
 export class CreateEventDto {
   @IsString()
-  @IsNotEmpty({ message: 'Título é obrigatório' })
+  @IsNotEmpty({ message: 'TÃ­tulo Ã© obrigatÃ³rio' })
   title: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'Descrição é obrigatória' })
+  @IsNotEmpty({ message: 'DescriÃ§Ã£o Ã© obrigatÃ³ria' })
   description: string;
 
   @IsString()
   @IsOptional()
-  @IsUrl({}, { message: 'URL do banner inválida' })
+  @Matches(BANNER_VALUE_REGEX, {
+    message:
+      'Banner invÃ¡lido. Use uma URL http(s), caminho /uploads/... ou imagem base64',
+  })
   @Transform(({ value }: { value: any }) => (value === '' ? undefined : value))
   bannerUrl?: string;
 
@@ -49,7 +54,7 @@ export class CreateEventDto {
   @IsOptional()
   @Matches(/^[a-z0-9-]+$/, {
     message:
-      'URL personalizada deve conter apenas letras minúsculas, números e hífens',
+      'URL personalizada deve conter apenas letras minÃºsculas, nÃºmeros e hÃ­fens',
   })
   @Transform(({ value }: { value: any }) => (value === '' ? undefined : value))
   slug?: string;

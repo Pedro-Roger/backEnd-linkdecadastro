@@ -47,13 +47,15 @@ export class RegistrationsService {
       },
     });
 
+    const unlimitedClassSize = 999999;
+
     if (!municipalityLimit) {
       municipalityLimit = await this.prisma.municipalityLimit.create({
         data: {
           eventId: data.eventId,
           municipality: data.city,
           state: data.state,
-          defaultLimit: 20,
+          defaultLimit: unlimitedClassSize,
         },
       });
     }
@@ -73,26 +75,7 @@ export class RegistrationsService {
         data: {
           municipalityLimitId: municipalityLimit.id,
           classNumber: 1,
-          limit: municipalityLimit.defaultLimit,
-          currentCount: 0,
-        },
-      });
-    }
-
-    if (activeClass.currentCount >= activeClass.limit) {
-      await this.prisma.municipalityClass.update({
-        where: { id: activeClass.id },
-        data: {
-          status: MunicipalityClassStatus.CLOSED,
-          closedAt: new Date(),
-        },
-      });
-
-      activeClass = await this.prisma.municipalityClass.create({
-        data: {
-          municipalityLimitId: municipalityLimit.id,
-          classNumber: activeClass.classNumber + 1,
-          limit: municipalityLimit.defaultLimit,
+          limit: municipalityLimit.defaultLimit || unlimitedClassSize,
           currentCount: 0,
         },
       });

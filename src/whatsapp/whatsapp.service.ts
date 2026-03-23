@@ -1,11 +1,10 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as QRCode from 'qrcode';
-import { join } from 'path';
-import { existsSync, mkdirSync, rmSync } from 'fs';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import { AiChatService } from './ai-chat.service';
+import { AgentsService } from '../agents/agents.service';
 
 // We'll import types only to avoid runtime require() calls
 import type { WASocket } from '@whiskeysockets/baileys';
@@ -34,11 +33,33 @@ interface WhatsAppInstance {
   contacts: Map<string, any>;
 }
 
+interface StoredMessageInput {
+  id: string;
+  text?: string;
+  sender: 'me' | 'them';
+  profilePicUrl?: string;
+  senderName?: string;
+  contactName?: string;
+  contactNumber?: string;
+  isGroup?: boolean;
+  mediaUrl?: string;
+  mediaType?: string;
+  mimetype?: string;
+  fileSize?: number;
+}
+
+export interface ContactInfoResult {
+  userId?: string;
+  name: string | null;
+  role: string | null;
+  courses: string[];
+  events: string[];
+}
+
 @Injectable()
 export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private instances: Map<string, WhatsAppInstance> = new Map();
   private messages: Map<string, any[]> = new Map(); // sessionId:jid -> messages[]
-  private authBaseDir: string;
   private RETRY_INTERVAL = 5000;
   private MAX_RETRIES = 5;
 
@@ -46,13 +67,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly aiChatService: AiChatService
-  ) {
-    this.authBaseDir = join(process.cwd(), '.baileys_auth');
-    if (!existsSync(this.authBaseDir)) {
-      mkdirSync(this.authBaseDir, { recursive: true });
-    }
-  }
+    private readonly aiChatService: AiChatService,
+    private readonly agentsService: AgentsService,
+  ) { }
 
   private async getBaileys() {
     if (!this.baileysModule) {
@@ -87,12 +104,176 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     return this.instances.get(sessionId)!;
   }
 
-  private getSessionPath(sessionId: string): string {
-    const path = join(this.authBaseDir, sessionId);
-    if (!existsSync(path)) {
-      mkdirSync(path, { recursive: true });
+  private normalizeGroupId(groupId: string): string {
+    const trimmed = groupId?.trim().replace(/\s+/g, '');
+    if (!trimmed) {
+      throw new Error('ID do grupo não informado');
     }
-    return path;
+    if (trimmed.includes('@g.us')) return trimmed;
+    return `${trimmed}@g.us`;
+  }
+
+  private normalizeContactJid(value: string | undefined | null): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.includes('@')) return trimmed;
+    const digits = trimmed.replace(/\D/g, '');
+    if (!digits) return null;
+    return `${digits}@s.whatsapp.net`;
+  }
+
+  private getMessageText(message: any): string | undefined {
+    return (
+      message?.conversation ||
+      message?.extendedTextMessage?.text ||
+      message?.imageMessage?.caption ||
+      message?.videoMessage?.caption ||
+      message?.documentMessage?.caption
+    );
+  }
+
+  private getMediaPayload(message: any) {
+    if (message?.imageMessage) {
+      return {
+        mediaType: 'image',
+        mimetype: message.imageMessage.mimetype,
+        fileSize: Number(message.imageMessage.fileLength || 0) || undefined,
+      };
+    }
+
+    if (message?.videoMessage) {
+      return {
+        mediaType: 'video',
+        mimetype: message.videoMessage.mimetype,
+        fileSize: Number(message.videoMessage.fileLength || 0) || undefined,
+      };
+    }
+
+    if (message?.audioMessage) {
+      return {
+        mediaType: 'audio',
+        mimetype: message.audioMessage.mimetype,
+        fileSize: Number(message.audioMessage.fileLength || 0) || undefined,
+      };
+    }
+
+    if (message?.documentMessage) {
+      return {
+        mediaType: 'document',
+        mimetype: message.documentMessage.mimetype,
+        fileSize: Number(message.documentMessage.fileLength || 0) || undefined,
+      };
+    }
+
+    return {
+      mediaType: undefined,
+      mimetype: undefined,
+      fileSize: undefined,
+    };
+  }
+
+  private normalizeContactNumber(jid: string): string {
+    return jid.split('@')[0] || jid;
+  }
+
+  private async getAuthRecord(sessionId: string) {
+    return this.prisma.whatsappAuthState.findUnique({
+      where: { session_id: sessionId },
+    });
+  }
+
+  private async upsertAuthRecord(sessionId: string, data: Record<string, any>) {
+    await this.prisma.whatsappAuthState.upsert({
+      where: { session_id: sessionId },
+      update: data,
+      create: {
+        session_id: sessionId,
+        ...data,
+      },
+    });
+  }
+
+  private async clearAuthRecord(sessionId: string) {
+    await this.prisma.whatsappAuthState.deleteMany({
+      where: { session_id: sessionId },
+    });
+  }
+
+  private async useMongoAuthState(sessionId: string) {
+    const { BufferJSON, initAuthCreds, proto } = await this.getBaileys();
+    const authRecord = await this.getAuthRecord(sessionId);
+    const creds = authRecord?.creds
+      ? JSON.parse(JSON.stringify(authRecord.creds), BufferJSON.reviver)
+      : initAuthCreds();
+
+    const readAuthRecord = async () => {
+      return (await this.getAuthRecord(sessionId)) || {
+        session_id: sessionId,
+        creds: JSON.parse(JSON.stringify(creds, BufferJSON.replacer)),
+        keys: {},
+      };
+    };
+
+    return {
+      state: {
+        creds,
+        keys: {
+          get: async (type: string, ids: string[]) => {
+            const latest = await readAuthRecord();
+            const allKeys = (latest?.keys || {}) as Record<string, Record<string, any>>;
+            const category = allKeys[type] || {};
+            const data: Record<string, any> = {};
+
+            for (const id of ids) {
+              let value = category[id];
+              if (value) {
+                value = JSON.parse(JSON.stringify(value), BufferJSON.reviver);
+              }
+              if (type === 'app-state-sync-key' && value) {
+                value = proto.Message.AppStateSyncKeyData.fromObject(value);
+              }
+              data[id] = value;
+            }
+
+            return data;
+          },
+          set: async (data: Record<string, Record<string, any>>) => {
+            const latest = await readAuthRecord();
+            const keys: Record<string, Record<string, any>> = {
+              ...((latest.keys || {}) as Record<string, Record<string, any>>),
+            };
+
+            for (const category of Object.keys(data)) {
+              const currentCategory = { ...(keys[category] || {}) };
+              for (const id of Object.keys(data[category] || {})) {
+                const value = data[category][id];
+                if (value) {
+                  currentCategory[id] = JSON.parse(
+                    JSON.stringify(value, BufferJSON.replacer),
+                  );
+                } else {
+                  delete currentCategory[id];
+                }
+              }
+
+              if (Object.keys(currentCategory).length > 0) {
+                keys[category] = currentCategory;
+              } else {
+                delete keys[category];
+              }
+            }
+
+            await this.upsertAuthRecord(sessionId, { keys });
+          },
+        },
+      },
+      saveCreds: async () => {
+        await this.upsertAuthRecord(sessionId, {
+          creds: JSON.parse(JSON.stringify(creds, BufferJSON.replacer)),
+        });
+      },
+    };
   }
 
   async initializeClient(sessionId: string) {
@@ -107,13 +288,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     try {
       const {
         default: makeWASocket,
-        useMultiFileAuthState,
         fetchLatestBaileysVersion,
       } = await this.getBaileys();
 
       instance.status = WhatsAppStatus.CONNECTING;
-      const sessionPath = this.getSessionPath(sessionId);
-      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+      const { state, saveCreds } = await this.useMongoAuthState(sessionId);
       const { version } = await fetchLatestBaileysVersion();
 
       const socket = makeWASocket({
@@ -169,6 +348,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
           if (shouldReconnect) {
             instance.status = WhatsAppStatus.DISCONNECTED;
+            instance.socket = null;
+            instance.qrCodeData = null;
             if (instance.retryCount < this.MAX_RETRIES) {
               instance.retryCount++;
               setTimeout(() => this.initializeClient(sessionId), this.RETRY_INTERVAL);
@@ -177,9 +358,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             instance.status = WhatsAppStatus.DISCONNECTED;
             instance.retryCount = 0;
             instance.socket = null;
-            if (existsSync(sessionPath)) {
-              rmSync(sessionPath, { recursive: true, force: true });
-            }
+            await this.clearAuthRecord(sessionId);
           }
         } else if (connection === 'open') {
           instance.status = WhatsAppStatus.READY;
@@ -205,37 +384,55 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               const remoteJid = msg.key.remoteJid;
               if (!remoteJid) continue;
 
-              const textMessage = msg.message.conversation || msg.message.extendedTextMessage?.text;
+              const textMessage = this.getMessageText(msg.message);
+              const mediaPayload = this.getMediaPayload(msg.message);
+              const isGroup = remoteJid.includes('@g.us');
 
-              if (textMessage) {
-                // Tenta pegar a foto de perfil se for nova conversa
-                let profilePicUrl = undefined;
+              let profilePicUrl = undefined;
+              try {
+                profilePicUrl = await socket
+                  .profilePictureUrl(remoteJid, 'image')
+                  .catch(() => undefined);
+              } catch (e) {}
+
+              await this.storeMessage(sessionId, remoteJid, {
+                id: msg.key.id!,
+                text: textMessage,
+                sender: msg.key.fromMe ? 'me' : 'them',
+                profilePicUrl,
+                senderName: msg.pushName || msg.verifiedBizName,
+                contactName: msg.pushName || msg.verifiedBizName,
+                contactNumber: this.normalizeContactNumber(remoteJid),
+                isGroup,
+                mediaType: mediaPayload.mediaType,
+                mimetype: mediaPayload.mimetype,
+                fileSize: mediaPayload.fileSize,
+              });
+
+              if (!msg.key.fromMe && !isGroup && textMessage) {
+                const phoneNumber = this.normalizeContactNumber(remoteJid);
                 try {
-                  if (!msg.key.fromMe) {
-                    profilePicUrl = await socket.profilePictureUrl(remoteJid, 'image').catch(() => undefined);
-                  }
-                } catch (e) { }
+                  const aiResponse = await this.aiChatService.consultarAssistente({
+                    perguntaUsuario: textMessage,
+                    telefoneDoUsuario: phoneNumber,
+                    sessionId,
+                    remoteJid,
+                  });
 
-                await this.storeMessage(sessionId, remoteJid, {
-                  id: msg.key.id!,
-                  text: textMessage,
-                  sender: msg.key.fromMe ? 'me' : 'them',
-                  profilePicUrl
-                });
-              }
-
-              // IA Auto-reply (only if not from me)
-              if (!msg.key.fromMe && !remoteJid.includes('@g.us')) {
-                const phoneNumber = remoteJid.split('@')[0];
-                if (phoneNumber && textMessage) {
-                  try {
-                    const aiResponse = await this.aiChatService.consultarAssistente(textMessage, phoneNumber);
-                    if (aiResponse) {
-                      await socket.sendMessage(remoteJid, { text: aiResponse });
-                    }
-                  } catch (err) {
-                    console.error('Erro ao processar mensagem com IA:', err);
+                  if (aiResponse) {
+                    const sent = await socket.sendMessage(remoteJid, { text: aiResponse });
+                    await this.storeMessage(sessionId, remoteJid, {
+                      id: sent?.key?.id || `${Date.now()}`,
+                      text: aiResponse,
+                      sender: 'me',
+                      profilePicUrl,
+                      contactNumber: phoneNumber,
+                      contactName: msg.pushName || msg.verifiedBizName,
+                      senderName: 'IA',
+                    });
                   }
+                } catch (err) {
+                  console.error('Erro ao processar mensagem com IA:', err);
                 }
               }
             }
@@ -258,10 +455,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       }
       this.instances.delete(sessionId);
     }
-    const sessionPath = this.getSessionPath(sessionId);
-    if (existsSync(sessionPath)) {
-      rmSync(sessionPath, { recursive: true, force: true });
-    }
+    await this.clearAuthRecord(sessionId);
     await this.prisma.chatChannel.update({
       where: { id: sessionId },
       data: { status: 'DISCONNECTED', phone_number: null }
@@ -270,7 +464,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   async getStatus(sessionId: string) {
     const instance = this.getInstance(sessionId);
-    if (!instance.socket) {
+    if (
+      !instance.socket ||
+      (instance.status === WhatsAppStatus.DISCONNECTED &&
+        !instance.qrCodeData)
+    ) {
       await this.initializeClient(sessionId);
     }
     return {
@@ -280,12 +478,52 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async reconnect(sessionId: string) {
+    const instance = this.getInstance(sessionId);
+
+    if (instance.socket) {
+      try {
+        instance.socket.end(undefined);
+      } catch (error) { }
+    }
+
+    instance.socket = null;
+    instance.status = WhatsAppStatus.DISCONNECTED;
+    instance.qrCodeData = null;
+    instance.retryCount = 0;
+    instance.phoneNumber = undefined;
+    instance.chats.clear();
+    instance.contacts.clear();
+
+    await this.clearAuthRecord(sessionId);
+
+    await this.prisma.chatChannel.update({
+      where: { id: sessionId },
+      data: { status: 'DISCONNECTED', phone_number: null },
+    });
+
+    await this.initializeClient(sessionId);
+    return this.getStatus(sessionId);
+  }
+
   async listUserSessions(userId: string) {
     const members = await this.prisma.chatChannelMember.findMany({
       where: { user_id: userId },
       include: { channels: true }
     });
     return members.map(m => m.channels);
+  }
+
+  async userHasAccessToSession(userId: string, sessionId: string) {
+    const membership = await this.prisma.chatChannelMember.findFirst({
+      where: {
+        user_id: userId,
+        channel_id: sessionId,
+        deleted_at: null,
+      },
+    });
+
+    return Boolean(membership);
   }
 
   async createSession(userId: string, name: string) {
@@ -382,23 +620,95 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getRecentChats(sessionId: string) {
-    const instance = this.instances.get(sessionId);
-    if (!instance) return [];
-
-    const chats = Array.from(instance.chats.values()).map(chat => {
-      const contact = instance.contacts.get(chat.id);
-      return {
-        id: chat.id,
-        jid: chat.id,
-        name: contact?.name || contact?.notify || contact?.verifiedName || chat.id.split('@')[0],
-        lastMessage: 'Mensagem do WhatsApp',
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(chat.id)}&background=random`,
-        type: chat.id.includes('@g.us') ? 'group' : 'person',
-        unreadCount: chat.unreadCount || 0,
-      };
+    const instance = this.getInstance(sessionId);
+    const routes = await this.agentsService.listConversationRoutes(
+      '',
+      'SUPER_ADMIN',
+      sessionId,
+    );
+    const routesMap = new Map(routes.map((route: any) => [route.conversationId, route]));
+    const persistedConversations = await this.prisma.chatConversation.findMany({
+      where: {
+        channel_id: sessionId,
+        deleted_at: null,
+      },
+      orderBy: [{ last_message_at: 'desc' }, { updated_at: 'desc' }],
+      take: 200,
     });
 
-    return chats;
+    const chatMap = new Map<string, any>();
+
+    for (const conversation of persistedConversations) {
+      const fallbackName =
+        conversation.contact_name ||
+        conversation.contact_number ||
+        conversation.provider_uid.split('@')[0];
+      const isGroup = conversation.provider_uid.includes('@g.us');
+      const route = routesMap.get(conversation.id);
+
+      chatMap.set(conversation.provider_uid, {
+        id: conversation.provider_uid,
+        jid: conversation.provider_uid,
+        name: fallbackName,
+        lastMessage:
+          conversation.last_message ||
+          (isGroup ? 'Grupo do WhatsApp' : 'Conversa do WhatsApp'),
+        avatar:
+          conversation.profile_pic_url ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(fallbackName)}&background=random`,
+        profile_pic_url: conversation.profile_pic_url,
+        type: isGroup ? 'group' : 'person',
+        unreadCount: conversation.unread_count || 0,
+        contactNumber: conversation.contact_number,
+        status: conversation.status,
+        lastMessageAt: conversation.last_message_at,
+        attendanceMode: route?.mode || 'HUMAN',
+        assignedAgentId: route?.agentId || null,
+        assignedAgentName: route?.agent?.name || null,
+      });
+    }
+
+    for (const chat of Array.from(instance.chats.values())) {
+      if (!chat?.id || chatMap.has(chat.id)) continue;
+
+      const contact = instance.contacts.get(chat.id);
+      const name =
+        chat.name ||
+        chat.subject ||
+        contact?.name ||
+        contact?.notify ||
+        contact?.verifiedName ||
+        chat.id.split('@')[0];
+
+      let profilePicUrl: string | undefined;
+      try {
+        profilePicUrl = await instance.socket
+          ?.profilePictureUrl(chat.id, 'image')
+          .catch(() => undefined);
+      } catch (error) {}
+
+      chatMap.set(chat.id, {
+        id: chat.id,
+        jid: chat.id,
+        name,
+        lastMessage: chat.id.includes('@g.us')
+          ? 'Grupo do WhatsApp'
+          : 'Contato do WhatsApp',
+        avatar:
+          profilePicUrl ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`,
+        profile_pic_url: profilePicUrl,
+        type: chat.id.includes('@g.us') ? 'group' : 'person',
+        unreadCount: chat.unreadCount || 0,
+        contactNumber: this.normalizeContactNumber(chat.id),
+      });
+    }
+
+    return Array.from(chatMap.values()).sort((a, b) => {
+      const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+      const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      return bTime - aTime;
+    });
   }
 
   async createGroup(sessionId: string, name: string, participants: string[]) {
@@ -408,17 +718,12 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const ownerPhone = instance.phoneNumber;
     const ownerJid = ownerPhone ? `${ownerPhone}@s.whatsapp.net` : null;
 
-    // Remove duplicates, ensure JIDs are valid and remove the owner (added automatically)
-    const uniqueParticipants = [...new Set(participants)]
-      .map(p => {
-        let jid = p.includes('@') ? p : `${p.replace(/\D/g, '')}@s.whatsapp.net`;
-        if (!jid.includes(':') && jid.includes('@s.whatsapp.net') && !jid.startsWith('55') && jid.split('@')[0].length <= 11) {
-          // Fallback for missing country code if not present
-          // But normally frontend already adds it.
-        }
-        return jid;
-      })
-      .filter(p => p !== ownerJid && p !== instance.socket?.user?.id);
+    const normalizedParticipants = participants
+      .map(p => this.normalizeContactJid(p))
+      .filter((jid): jid is string => Boolean(jid));
+
+    const uniqueParticipants = Array.from(new Set(normalizedParticipants))
+      .filter(jid => jid !== ownerJid && jid !== instance.socket?.user?.id);
 
     if (uniqueParticipants.length === 0) {
       throw new Error('Selecione pelo menos um participante (que não seja você mesmo).');
@@ -442,11 +747,62 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async addParticipantsToGroup(sessionId: string, groupId: string, participants: string[]) {
+    const instance = this.instances.get(sessionId);
+    if (!instance?.socket || instance.status !== WhatsAppStatus.READY) throw new Error('WhatsApp não conectado');
+    const normalizedGroupId = this.normalizeGroupId(groupId);
+
+    const ownerPhone = instance.phoneNumber;
+    const ownerJid = ownerPhone ? `${ownerPhone}@s.whatsapp.net` : null;
+
+    const normalizedParticipants = (participants || [])
+      .map(p => this.normalizeContactJid(p))
+      .filter((jid): jid is string => Boolean(jid));
+
+    const uniqueParticipants = Array.from(new Set(normalizedParticipants))
+      .filter(jid => jid !== ownerJid && jid !== instance.socket?.user?.id);
+
+    if (uniqueParticipants.length === 0) {
+      throw new Error('Informe ao menos um participante válido para adicionar.');
+    }
+
+    try {
+      await instance.socket.groupParticipantsUpdate(normalizedGroupId, uniqueParticipants, 'add');
+      return { success: true, added: uniqueParticipants.length, groupId: normalizedGroupId };
+    } catch (error: any) {
+      console.error(`[WhatsApp] Erro ao adicionar participantes no grupo ${normalizedGroupId}:`, error);
+      const errorMessage = error?.message || 'Erro desconhecido';
+      throw new Error(`Erro ao adicionar participantes: ${errorMessage}`);
+    }
+  }
+
   async getGroups(sessionId: string) {
     const instance = this.getInstance(sessionId);
     if (!instance.socket || instance.status !== WhatsAppStatus.READY) throw new Error('WhatsApp não conectado');
     const groups = await (instance.socket as any).groupFetchAllFull();
-    return Object.values(groups).map((g: any) => ({ id: g.id, name: g.subject, participants: g.participants?.length || 0 }));
+    return await Promise.all(
+      Object.values(groups).map(async (g: any) => {
+        let profilePicUrl: string | undefined;
+        try {
+          profilePicUrl = await instance.socket
+            ?.profilePictureUrl(g.id, 'image')
+            .catch(() => undefined);
+        } catch (error) {}
+
+        return {
+          id: g.id,
+          jid: g.id,
+          name: g.subject,
+          participants: g.participants?.length || 0,
+          avatar:
+            profilePicUrl ||
+            `https://ui-avatars.com/api/?name=${encodeURIComponent(g.subject || g.id)}&background=random`,
+          profile_pic_url: profilePicUrl,
+          type: 'group',
+          lastMessage: 'Grupo do WhatsApp',
+        };
+      }),
+    );
   }
 
   async enviarMensagemDireta(sessionId: string, jid: string, mensagem: string) {
@@ -472,7 +828,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     await this.storeMessage(sessionId, target, {
       id: result?.key?.id || Date.now().toString(),
       text: mensagem,
-      sender: 'me'
+      sender: 'me',
+      senderName: 'Atendente',
+      contactNumber: this.normalizeContactNumber(target),
     });
 
     return { success: true, messageId: result?.key?.id };
@@ -518,23 +876,31 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async storeMessage(sessionId: string, jid: string, message: { id: string, text: string, sender: 'me' | 'them', profilePicUrl?: string }) {
+  private async storeMessage(sessionId: string, jid: string, message: StoredMessageInput) {
     try {
-      // Busca a conversa no banco
+      const instance = this.getInstance(sessionId);
+      const isGroup = message.isGroup ?? jid.includes('@g.us');
+      const phone = this.normalizeContactNumber(jid);
+      const info: ContactInfoResult | null = !isGroup
+        ? await this.getContactInfoByPhone(phone)
+        : null;
+      const memoryChat = instance.chats.get(jid);
+      const memoryContact = instance.contacts.get(jid);
+      const fallbackName = isGroup
+        ? memoryChat?.subject || memoryChat?.name || message.contactName || message.senderName || phone
+        : message.contactName || info?.name || memoryContact?.name || memoryContact?.notify || phone;
+
       let conversation = await this.prisma.chatConversation.findFirst({
         where: { channel_id: sessionId, provider_uid: jid }
       });
 
       if (!conversation) {
-        // Se for uma nova conversa, busca se é um contato do CRM pra pegar o nome
-        const phone = jid.split('@')[0];
-        const info = await this.getContactInfoByPhone(phone);
-
         conversation = await this.prisma.chatConversation.create({
           data: {
             channel_id: sessionId,
             provider_uid: jid,
-            contact_name: info.name || jid.split('@')[0],
+            user_id: info?.userId,
+            contact_name: fallbackName,
             contact_number: phone,
             profile_pic_url: message.profilePicUrl,
             status: 'OPEN'
@@ -542,24 +908,42 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      // Salva a mensagem
-      await this.prisma.chatMessage.create({
-        data: {
+      const contentType = message.mediaType || 'text';
+      const alreadyExists = await this.prisma.chatMessage.findFirst({
+        where: {
           conversation_id: conversation.id,
-          channel_id: sessionId,
           provider_msg_id: message.id,
-          direction: message.sender === 'me' ? 'OUTGOING' : 'INCOMING',
-          content: message.text,
-          content_type: 'text'
         }
       });
 
-      // Atualiza a conversa
+      if (!alreadyExists) {
+        await this.prisma.chatMessage.create({
+          data: {
+            conversation_id: conversation.id,
+            channel_id: sessionId,
+            provider_msg_id: message.id,
+            direction: message.sender === 'me' ? 'OUTGOING' : 'INCOMING',
+            content: message.text,
+            content_type: contentType,
+            media_url: message.mediaUrl,
+            media_type: message.mediaType,
+            file_size: message.fileSize,
+            mimetype: message.mimetype,
+            sender_name: message.senderName || fallbackName,
+            status: message.sender === 'me' ? 'SENT' : 'DELIVERED',
+          }
+        });
+      }
+
       await this.prisma.chatConversation.update({
         where: { id: conversation.id },
         data: {
-          last_message: message.text,
+          user_id: conversation.user_id || info?.userId,
+          contact_name: fallbackName,
+          contact_number: phone,
+          last_message: message.text || `[${contentType}]`,
           last_message_at: new Date(),
+          unread_count: message.sender === 'them' ? { increment: 1 } : undefined,
           profile_pic_url: message.profilePicUrl || conversation.profile_pic_url
         }
       });
@@ -582,16 +966,24 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     if (!conversation) return [];
 
+    await this.prisma.chatConversation.update({
+      where: { id: conversation.id },
+      data: { unread_count: 0 },
+    });
+
     return conversation.messages.map(m => ({
       id: m.id,
-      text: m.content,
+      text: m.content || (m.media_type ? `[${m.media_type}]` : ''),
       time: m.sent_at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       sender: m.direction === 'OUTGOING' ? 'me' : 'them',
-      status: m.status.toLowerCase()
+      status: m.status.toLowerCase(),
+      senderName: m.sender_name,
+      mediaType: m.media_type,
+      mediaUrl: m.media_url,
     }));
   }
 
-  async getContactInfoByPhone(phone: string) {
+  async getContactInfoByPhone(phone: string): Promise<ContactInfoResult> {
     let cleanPhone = phone.replace(/\D/g, '');
     if (cleanPhone.startsWith('55')) cleanPhone = cleanPhone.substring(2);
     // Também tenta com o 9 à esquerda se for o caso
@@ -612,9 +1004,12 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       include: { event: true }
     });
 
-    if (!user && registrations.length === 0) return { name: null, role: null, courses: [], events: [] };
+    if (!user && registrations.length === 0) {
+      return { userId: undefined, name: null, role: null, courses: [], events: [] };
+    }
 
     return {
+      userId: user?.id,
       name: user?.name || registrations[0]?.name,
       role: user?.participantType || registrations[0]?.participantType,
       courses: user?.enrollments.map(e => e.course.title) || [],

@@ -11,3 +11,5 @@ dist/
 .wwebjs_auth/
 .wwebjs_cache/
 .baileys_auth/
+.vercel
+.env*.local

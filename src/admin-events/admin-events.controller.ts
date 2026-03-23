@@ -13,6 +13,7 @@ import {
 import { Response } from 'express';
 import { AdminEventsService } from './admin-events.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
+import { UpdateEventDto } from './dto/update-event.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('admin/events')
@@ -23,7 +24,7 @@ export class AdminEventsController {
   async updateEvent(
     @Param('eventId') eventId: string,
     @Req() req: any,
-    @Body() body: any,
+    @Body() body: UpdateEventDto,
   ) {
     return this.adminEventsService.updateEvent(
       eventId,
@@ -100,6 +101,15 @@ export class AdminEventsController {
       `attachment; filename="${result.filename}"`,
     );
     res.end(result.buffer);
+  }
+
+  @Get(':eventId')
+  async getEvent(@Param('eventId') eventId: string, @Req() req: any) {
+    return this.adminEventsService.getEventById(
+      eventId,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Patch('limits/:limitId')

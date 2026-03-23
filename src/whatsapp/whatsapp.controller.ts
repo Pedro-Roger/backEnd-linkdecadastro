@@ -1,29 +1,54 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
+  Controller,
+  ForbiddenException,
+  Get,
   HttpException,
   HttpStatus,
-  UseGuards,
+  Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
-import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
+import { WhatsAppService } from './whatsapp.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('api/whatsapp')
 export class WhatsAppController {
   constructor(private readonly whatsappService: WhatsAppService) { }
 
+  private rethrow(error: any, fallbackStatus = HttpStatus.INTERNAL_SERVER_ERROR): never {
+    if (error instanceof HttpException) {
+      throw error;
+    }
+
+    throw new HttpException(
+      { success: false, message: error?.message || 'Erro interno no WhatsApp.' },
+      fallbackStatus,
+    );
+  }
+
   private async getActiveSessionId(req: any, sessionId?: string): Promise<string> {
-    if (sessionId) return sessionId;
+    if (sessionId) {
+      const hasAccess = await this.whatsappService.userHasAccessToSession(
+        req.user.id,
+        sessionId,
+      );
+
+      if (!hasAccess) {
+        throw new ForbiddenException('Voce nao tem acesso a esta sessao de WhatsApp.');
+      }
+
+      return sessionId;
+    }
+
     const sessions = await this.whatsappService.listUserSessions(req.user.id);
     if (sessions.length === 0) {
-      const newSession = await this.whatsappService.createSession(req.user.id, 'Padrão');
+      const newSession = await this.whatsappService.createSession(req.user.id, 'Padrao');
       return newSession.id;
     }
+
     return sessions[0].id;
   }
 
@@ -33,7 +58,7 @@ export class WhatsAppController {
       const sessions = await this.whatsappService.listUserSessions(req.user.id);
       return { success: true, sessions };
     } catch (error: any) {
-      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      this.rethrow(error);
     }
   }
 
@@ -43,7 +68,7 @@ export class WhatsAppController {
       const session = await this.whatsappService.createSession(req.user.id, name || 'Novo WhatsApp');
       return { success: true, session };
     } catch (error: any) {
-      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      this.rethrow(error);
     }
   }
 
@@ -54,7 +79,7 @@ export class WhatsAppController {
       const status = await this.whatsappService.getStatus(sid);
       return { success: true, sessionId: sid, ...status };
     } catch (error: any) {
-      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      this.rethrow(error);
     }
   }
 
@@ -65,7 +90,7 @@ export class WhatsAppController {
       const code = await this.whatsappService.requestPairingCode(sid, body.phoneNumber);
       return { success: true, code };
     } catch (error: any) {
-      throw new HttpException({ success: false, message: error.message }, HttpStatus.BAD_REQUEST);
+      this.rethrow(error, HttpStatus.BAD_REQUEST);
     }
   }
 
@@ -76,7 +101,18 @@ export class WhatsAppController {
       await this.whatsappService.logout(sid);
       return { success: true, message: 'WhatsApp desconectado' };
     } catch (error: any) {
-      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      this.rethrow(error);
+    }
+  }
+
+  @Post('reconnect')
+  async reconnect(@Req() req: any, @Body() body: { sessionId?: string }) {
+    try {
+      const sid = await this.getActiveSessionId(req, body.sessionId);
+      const status = await this.whatsappService.reconnect(sid);
+      return { success: true, sessionId: sid, ...status };
+    } catch (error: any) {
+      this.rethrow(error);
     }
   }
 
@@ -86,7 +122,7 @@ export class WhatsAppController {
       const participantes = await this.whatsappService.getParticipants();
       return { success: true, participantes, total: participantes.length };
     } catch (error: any) {
-      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      this.rethrow(error);
     }
   }
 
@@ -104,7 +140,7 @@ export class WhatsAppController {
       );
       return { success: true, ...resultado };
     } catch (error: any) {
-      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      this.rethrow(error);
     }
   }
 
@@ -115,17 +151,18 @@ export class WhatsAppController {
       const chats = await this.whatsappService.getRecentChats(sid);
       return { success: true, chats };
     } catch (error: any) {
-      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      this.rethrow(error);
     }
   }
 
   @Get('messages')
-  async getMessages(@Query('sessionId') sessionId: string, @Query('jid') jid: string) {
+  async getMessages(@Req() req: any, @Query('sessionId') sessionId: string, @Query('jid') jid: string) {
     try {
-      const messages = this.whatsappService.getMessages(sessionId, jid);
+      const sid = await this.getActiveSessionId(req, sessionId);
+      const messages = this.whatsappService.getMessages(sid, jid);
       return { success: true, messages };
     } catch (error: any) {
-      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      this.rethrow(error);
     }
   }
 
@@ -136,19 +173,45 @@ export class WhatsAppController {
       const result = await this.whatsappService.enviarMensagemDireta(sid, body.jid, body.message);
       return { ...result };
     } catch (error: any) {
-      throw new HttpException({ success: false, message: error.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      this.rethrow(error);
     }
   }
 
   @Post('create-group')
-  async createGroup(
-    @Body() body: { sessionId: string; name: string; participants: string[] },
-  ) {
+  async createGroup(@Body() body: { sessionId: string; name: string; participants: string[] }) {
     return this.whatsappService.createGroup(
       body.sessionId,
       body.name,
       body.participants,
     );
+  }
+
+  @Post('add-to-group')
+  async addToGroup(
+    @Req() req: any,
+    @Body() body: { sessionId?: string; groupId: string; participants: string[] },
+  ) {
+    try {
+      const sid = await this.getActiveSessionId(req, body.sessionId);
+      return this.whatsappService.addParticipantsToGroup(
+        sid,
+        body.groupId,
+        body.participants,
+      );
+    } catch (error: any) {
+      this.rethrow(error);
+    }
+  }
+
+  @Get('groups')
+  async getGroups(@Req() req: any, @Query('sessionId') sessionId?: string) {
+    try {
+      const sid = await this.getActiveSessionId(req, sessionId);
+      const groups = await this.whatsappService.getGroups(sid);
+      return { success: true, groups };
+    } catch (error: any) {
+      this.rethrow(error);
+    }
   }
 
   @Get('contact-info')

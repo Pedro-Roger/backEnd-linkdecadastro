@@ -7,8 +7,12 @@ import { UserRole } from '@prisma/client';
 export class UserService {
   constructor(private readonly prisma: PrismaService) { }
 
+  private async runCommand<T = any>(command: Record<string, unknown>): Promise<T> {
+    return (this.prisma as any).$runCommandRaw(command);
+  }
+
   async getProfile(userId: string) {
-    return this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
@@ -30,6 +34,31 @@ export class UserService {
         createdAt: true,
       },
     });
+
+    if (!user) {
+      return null;
+    }
+
+    let canAccessAgents = false;
+    if (user.role === 'SUPER_ADMIN') {
+      canAccessAgents = true;
+    } else {
+      const access = await this.runCommand<{ cursor?: { firstBatch?: any[] } }>({
+        find: 'service_agent_accesses',
+        filter: {
+          user_id: userId,
+          enabled: true,
+        },
+        limit: 1,
+      }).catch(() => ({ cursor: { firstBatch: [] } }));
+
+      canAccessAgents = Boolean(access?.cursor?.firstBatch?.[0]);
+    }
+
+    return {
+      ...user,
+      canAccessAgents,
+    };
   }
 
   async updateProfile(
@@ -181,7 +210,7 @@ export class UserService {
       where.city = filters.city;
     }
 
-    return this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       where,
       select: {
         id: true,
@@ -204,6 +233,20 @@ export class UserService {
         createdAt: 'desc',
       },
     });
+
+    const accessResult = await this.runCommand<{ cursor?: { firstBatch?: any[] } }>({
+      find: 'service_agent_accesses',
+      filter: { enabled: true },
+    }).catch(() => ({ cursor: { firstBatch: [] } }));
+
+    const accessSet = new Set(
+      (accessResult?.cursor?.firstBatch || []).map((item: any) => item.user_id),
+    );
+
+    return users.map((user) => ({
+      ...user,
+      canAccessAgents: user.role === 'SUPER_ADMIN' || accessSet.has(user.id),
+    }));
   }
 
   async updateUserRole(userId: string, role: string) {

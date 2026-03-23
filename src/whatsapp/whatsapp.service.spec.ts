@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WhatsAppService } from './whatsapp.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiChatService } from './ai-chat.service';
+import { AgentsService } from '../agents/agents.service';
 
 describe('WhatsAppService', () => {
   let service: WhatsAppService;
@@ -37,6 +38,15 @@ describe('WhatsAppService', () => {
     consultarAssistente: jest.fn(),
   };
 
+  const mockAgentsService = {
+    listConversationRoutes: jest.fn().mockResolvedValue([]),
+    resolveConversationAgent: jest.fn().mockResolvedValue({
+      mode: 'HUMAN',
+      agent: null,
+      route: null,
+    }),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -48,6 +58,10 @@ describe('WhatsAppService', () => {
         {
           provide: AiChatService,
           useValue: mockAiChatService,
+        },
+        {
+          provide: AgentsService,
+          useValue: mockAgentsService,
         },
       ],
     }).compile();

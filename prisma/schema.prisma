@@ -495,3 +495,15 @@ model ChatQuickResponse {
 
   @@map("chat_quick_responses")
 }
+
+model WhatsappAuthState {
+  id         String  @id @default(auto()) @map("_id") @db.ObjectId
+  session_id String  @unique @db.ObjectId
+  creds      Json?
+  keys       Json?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("whatsapp_auth_states")
+}

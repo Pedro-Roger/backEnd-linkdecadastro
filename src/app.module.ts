@@ -17,6 +17,7 @@ import { ShareModule } from './share/share.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { AdminCrmModule } from './admin-crm/admin-crm.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
+import { AgentsModule } from './agents/agents.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
     WhatsAppModule,
     AdminCrmModule,
     AiAssistantModule,
+    AgentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

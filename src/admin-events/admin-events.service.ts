@@ -46,7 +46,7 @@ export class AdminEventsService {
   ) {
     this.assertAdmin(userRole);
 
-    const { title, description, bannerUrl, maxRegistrations, status } = body;
+    const { title, description, bannerUrl, maxRegistrations, status, slug } = body;
 
     const updates: Record<string, any> = {};
     if (title !== undefined) updates.title = title;
@@ -56,6 +56,9 @@ export class AdminEventsService {
       updates.maxRegistrations = maxRegistrations;
     if (bannerUrl !== undefined) {
       updates.bannerUrl = bannerUrl ? bannerUrl : null;
+    }
+    if (slug !== undefined) {
+      updates.slug = slug ? slug : null;
     }
 
     const event = await this.eventsRepository.findFirst({
@@ -70,6 +73,29 @@ export class AdminEventsService {
       where: { id: eventId },
       data: updates,
     });
+  }
+
+  async getEventById(
+    eventId: string,
+    userId: string,
+    userRole: string | undefined,
+  ) {
+    this.assertAdmin(userRole);
+
+    const event = await this.eventsRepository.findFirst({
+      where: this.getOwnedWhereClause(userId || '', userRole, { id: eventId }),
+      include: {
+        _count: {
+          select: { registrations: true },
+        },
+      },
+    });
+
+    if (!event) {
+      throw new NotFoundException('Evento nÃ£o encontrado ou acesso negado');
+    }
+
+    return event;
   }
 
   async deleteEvent(

@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Put, Post, Body, UseGuards, Request } from '@nestjs/common';
 import { AiAssistantService } from './ai-assistant.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 
@@ -15,5 +15,13 @@ export class AiAssistantController {
     @Put('config')
     async updateConfig(@Request() req: any, @Body() body: { isActive?: boolean; prompt?: string; context?: string }) {
         return this.aiAssistantService.updateConfig(req.user.id, body);
+    }
+
+    @Post('chat')
+    async chat(
+        @Request() req: any,
+        @Body() body: { message: string; history?: Array<{ role: 'user' | 'assistant'; content: string }> },
+    ) {
+        return this.aiAssistantService.chat(req.user.id, body);
     }
 }
