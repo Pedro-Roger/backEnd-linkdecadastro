@@ -454,6 +454,34 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  private async updateChannelState(
+    sessionId: string,
+    data: Record<string, any>,
+  ) {
+    try {
+      const result = await this.prisma.chatChannel.updateMany({
+        where: { id: sessionId },
+        data,
+      });
+
+      if (result.count === 0) {
+        const instance = this.instances.get(sessionId);
+        if (instance?.socket) {
+          try {
+            instance.socket.end(undefined);
+          } catch (error) {}
+        }
+        this.instances.delete(sessionId);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error(`[WhatsApp] Falha ao atualizar canal ${sessionId}:`, error);
+      return false;
+    }
+  }
+
   private getContactQueueKey(sessionId: string, jid: string) {
     return `${sessionId}:${jid}`;
   }
@@ -746,10 +774,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             base64: await QRCode.toDataURL(qr),
           };
 
-          await this.prisma.chatChannel.update({
-            where: { id: sessionId },
-            data: { status: 'QR_CODE' },
-          });
+          await this.updateChannelState(sessionId, { status: 'QR_CODE' });
         }
 
         if (connection === 'close') {
@@ -757,14 +782,16 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           const shouldReconnect =
             disconnectCode !== DisconnectReason.loggedOut &&
             disconnectCode !== DisconnectReason.badSession;
+          const hasPendingQr = Boolean(instance.qrCodeData?.base64);
 
           if (shouldReconnect) {
-            instance.status = WhatsAppStatus.DISCONNECTED;
+            instance.status = hasPendingQr
+              ? WhatsAppStatus.QR_CODE
+              : WhatsAppStatus.DISCONNECTED;
             instance.socket = null;
-            instance.qrCodeData = null;
-            await this.prisma.chatChannel.update({
-              where: { id: sessionId },
-              data: { status: 'DISCONNECTED', phone_number: null },
+            await this.updateChannelState(sessionId, {
+              status: hasPendingQr ? 'QR_CODE' : 'DISCONNECTED',
+              phone_number: null,
             });
             if (instance.retryCount < this.MAX_RETRIES) {
               instance.retryCount++;
@@ -774,18 +801,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             instance.status = WhatsAppStatus.DISCONNECTED;
             instance.retryCount = 0;
             instance.socket = null;
-            await this.prisma.chatChannel.update({
-              where: { id: sessionId },
-              data: { status: 'DISCONNECTED', phone_number: null },
+            await this.updateChannelState(sessionId, {
+              status: 'DISCONNECTED',
+              phone_number: null,
             });
             await this.clearAuthRecord(sessionId);
           }
         } else if (connection === 'connecting') {
           instance.status = WhatsAppStatus.CONNECTING;
-          await this.prisma.chatChannel.update({
-            where: { id: sessionId },
-            data: { status: 'CONNECTING' },
-          });
+          await this.updateChannelState(sessionId, { status: 'CONNECTING' });
         } else if (connection === 'open') {
           instance.status = WhatsAppStatus.READY;
           instance.qrCodeData = null;
@@ -800,9 +824,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           if (user?.id) {
             const phone = user.id.split(':')[0].split('@')[0];
             instance.phoneNumber = phone;
-            await this.prisma.chatChannel.update({
-              where: { id: sessionId },
-              data: { phone_number: phone, status: 'READY' }
+            await this.updateChannelState(sessionId, {
+              phone_number: phone,
+              status: 'READY',
             });
           }
         }
@@ -945,9 +969,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       this.instances.delete(sessionId);
     }
     await this.clearAuthRecord(sessionId);
-    await this.prisma.chatChannel.update({
-      where: { id: sessionId },
-      data: { status: 'DISCONNECTED', phone_number: null }
+    await this.updateChannelState(sessionId, {
+      status: 'DISCONNECTED',
+      phone_number: null,
     });
   }
 
@@ -1002,7 +1026,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       await this.initializeClient(sessionId);
     }
     return {
-      status: instance.status,
+      status:
+        instance.status !== WhatsAppStatus.READY && instance.qrCodeData?.base64
+          ? WhatsAppStatus.QR_CODE
+          : instance.status,
       qrCode: instance.qrCodeData?.qr,
       qrCodeBase64: instance.qrCodeData?.base64,
     };
@@ -1028,9 +1055,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     await this.clearAuthRecord(sessionId);
 
-    await this.prisma.chatChannel.update({
-      where: { id: sessionId },
-      data: { status: 'DISCONNECTED', phone_number: null },
+    await this.updateChannelState(sessionId, {
+      status: 'DISCONNECTED',
+      phone_number: null,
     });
 
     await this.initializeClient(sessionId);
