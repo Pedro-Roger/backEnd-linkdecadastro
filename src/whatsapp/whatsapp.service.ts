@@ -69,8 +69,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private messages: Map<string, any[]> = new Map(); // sessionId:jid -> messages[]
   private authWriteLocks: Map<string, Promise<void>> = new Map();
   private processingMessages: Set<string> = new Set();
+  private contactQueues: Map<string, Promise<void>> = new Map();
+  private botCooldowns: Map<string, number> = new Map();
   private RETRY_INTERVAL = 5000;
   private MAX_RETRIES = 5;
+  private BOT_REPLY_COOLDOWN_MS = 8000;
 
   private baileysModule: any = null;
 
@@ -451,6 +454,50 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  private getContactQueueKey(sessionId: string, jid: string) {
+    return `${sessionId}:${jid}`;
+  }
+
+  private async enqueueContactTask<T>(
+    sessionId: string,
+    jid: string,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const key = this.getContactQueueKey(sessionId, jid);
+    const previous = this.contactQueues.get(key) || Promise.resolve();
+    let release!: () => void;
+
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chained = previous.finally(() => current).catch(() => current);
+    this.contactQueues.set(key, chained);
+
+    await previous.catch(() => undefined);
+
+    try {
+      return await task();
+    } finally {
+      release();
+      setTimeout(() => {
+        if (this.contactQueues.get(key) === chained) {
+          this.contactQueues.delete(key);
+        }
+      }, 1000);
+    }
+  }
+
+  private isBotCoolingDown(sessionId: string, jid: string) {
+    const key = this.getContactQueueKey(sessionId, jid);
+    const cooldownUntil = this.botCooldowns.get(key) || 0;
+    return cooldownUntil > Date.now();
+  }
+
+  private markBotCooldown(sessionId: string, jid: string) {
+    const key = this.getContactQueueKey(sessionId, jid);
+    this.botCooldowns.set(key, Date.now() + this.BOT_REPLY_COOLDOWN_MS);
+  }
+
   private isWriteConflict(error: any) {
     return error?.code === 'P2034';
   }
@@ -810,26 +857,46 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               continue;
             }
 
-            const aiResponse = await this.aiChatService.consultarAssistente({
-              perguntaUsuario: textMessage,
-              telefoneDoUsuario: contactNumber,
-              sessionId,
-              remoteJid,
-            });
+            await this.enqueueContactTask(sessionId, remoteJid, async () => {
+              if (this.isBotCoolingDown(sessionId, remoteJid)) {
+                await this.aiChatService.registrarDiagnostico({
+                  sessionId,
+                  remoteJid,
+                  providerMessageId: msg.key.id,
+                  status: 'SKIPPED',
+                  reason: 'contact_in_cooldown_window',
+                  mode: 'AUTONOMOUS',
+                  agentId: null,
+                  agentName: null,
+                  userMessage: textMessage,
+                });
+                return;
+              }
 
-            if (!aiResponse?.trim()) {
-              continue;
-            }
+              const aiResult = await this.aiChatService.consultarAssistente({
+                perguntaUsuario: textMessage,
+                telefoneDoUsuario: contactNumber,
+                sessionId,
+                remoteJid,
+                providerMessageId: msg.key.id,
+              });
 
-            const sent = await socket.sendMessage(remoteJid, { text: aiResponse });
-            await this.storeMessage(sessionId, remoteJid, {
-              id: sent?.key?.id || `${Date.now()}`,
-              text: aiResponse,
-              sender: 'me',
-              profilePicUrl,
-              contactNumber,
-              contactName: msg.pushName || msg.verifiedBizName,
-              senderName: 'IA',
+              if (!aiResult.reply?.trim()) {
+                return;
+              }
+
+              const sent = await socket.sendMessage(remoteJid, { text: aiResult.reply });
+              await this.storeMessage(sessionId, remoteJid, {
+                id: sent?.key?.id || `${Date.now()}`,
+                text: aiResult.reply,
+                sender: 'me',
+                profilePicUrl,
+                contactNumber,
+                contactName: msg.pushName || msg.verifiedBizName,
+                senderName: 'IA',
+              });
+
+              this.markBotCooldown(sessionId, remoteJid);
             });
           } catch (err) {
             console.error('Erro ao processar mensagem com IA:', err);
