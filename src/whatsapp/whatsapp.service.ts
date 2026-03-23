@@ -31,6 +31,7 @@ interface WhatsAppInstance {
   phoneNumber?: string;
   chats: Map<string, any>;
   contacts: Map<string, any>;
+  groupMetadataCache: Map<string, any>;
 }
 
 interface StoredMessageInput {
@@ -67,6 +68,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private instances: Map<string, WhatsAppInstance> = new Map();
   private messages: Map<string, any[]> = new Map(); // sessionId:jid -> messages[]
   private authWriteLocks: Map<string, Promise<void>> = new Map();
+  private processingMessages: Set<string> = new Set();
   private RETRY_INTERVAL = 5000;
   private MAX_RETRIES = 5;
 
@@ -85,7 +87,123 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     return this.baileysModule;
   }
 
+  private shouldIgnoreJid(jid?: string | null) {
+    if (!jid) return true;
+
+    return (
+      jid === 'status@broadcast' ||
+      jid.endsWith('@broadcast') ||
+      jid.includes('@newsletter')
+    );
+  }
+
+  private async restorePersistedSessions() {
+    try {
+      const channels = await this.prisma.chatChannel.findMany({
+        where: {
+          provider: 'baileys',
+          deleted_at: null,
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      for (const channel of channels) {
+        const authRecord = await this.getAuthRecord(channel.id);
+        if (!authRecord?.creds) continue;
+
+        this.initializeClient(channel.id).catch((error) => {
+          console.error(
+            `[WhatsApp] Falha ao restaurar sessao ${channel.id}:`,
+            error,
+          );
+        });
+      }
+    } catch (error) {
+      console.error('[WhatsApp] Falha ao restaurar sessoes persistidas:', error);
+    }
+  }
+
+  private async getStoredBaileysMessage(key: any) {
+    const providerMsgId = key?.id;
+    const remoteJid = key?.remoteJid;
+
+    if (!providerMsgId || !remoteJid) {
+      return undefined;
+    }
+
+    const conversation = await this.prisma.chatConversation.findFirst({
+      where: {
+        provider_uid: remoteJid,
+      },
+      select: { id: true },
+      orderBy: { updated_at: 'desc' },
+    });
+
+    if (!conversation) {
+      return undefined;
+    }
+
+    const stored = await this.prisma.chatMessage.findFirst({
+      where: {
+        conversation_id: conversation.id,
+        provider_msg_id: providerMsgId,
+      },
+      select: {
+        content: true,
+      },
+    });
+
+    if (!stored?.content) {
+      return undefined;
+    }
+
+    return {
+      conversation: stored.content,
+    };
+  }
+
+  private async refreshGroupMetadataCache(sessionId: string, groupId: string) {
+    if (!groupId?.includes('@g.us')) return null;
+
+    const instance = this.getInstance(sessionId);
+    if (!instance.socket) return null;
+
+    try {
+      const metadata = await (instance.socket as any).groupMetadata(groupId);
+      if (metadata) {
+        instance.groupMetadataCache.set(groupId, metadata);
+      }
+      return metadata || null;
+    } catch (error) {
+      return instance.groupMetadataCache.get(groupId) || null;
+    }
+  }
+
+  private async persistGroupsFromCache(sessionId: string, groups: any[]) {
+    for (const group of groups || []) {
+      if (!group?.id) continue;
+
+      const normalized = {
+        id: group.id,
+        subject: group.subject || group.name || group.notify,
+        participants: group.participants || [],
+      };
+
+      this.getInstance(sessionId).groupMetadataCache.set(group.id, normalized);
+      await this.syncChatSnapshot(sessionId, {
+        id: group.id,
+        subject: normalized.subject,
+        name: normalized.subject,
+      });
+    }
+  }
+
   async onModuleInit() {
+    console.log('[WhatsApp Baileys] Servico inicializado');
+    await this.restorePersistedSessions();
     console.log('🚀 [WhatsApp Baileys] Serviço pronto para inicialização');
   }
 
@@ -99,14 +217,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   private getInstance(sessionId: string): WhatsAppInstance {
     if (!this.instances.has(sessionId)) {
-      this.instances.set(sessionId, {
-        socket: null,
-        status: WhatsAppStatus.DISCONNECTED,
-        qrCodeData: null,
-        retryCount: 0,
-        chats: new Map(),
-        contacts: new Map(),
-      });
+        this.instances.set(sessionId, {
+          socket: null,
+          status: WhatsAppStatus.DISCONNECTED,
+          qrCodeData: null,
+          retryCount: 0,
+          chats: new Map(),
+          contacts: new Map(),
+          groupMetadataCache: new Map(),
+        });
     }
     return this.instances.get(sessionId)!;
   }
@@ -492,20 +611,26 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       const {
         Browsers,
         default: makeWASocket,
-        fetchLatestBaileysVersion,
       } = await this.getBaileys();
 
       instance.status = WhatsAppStatus.CONNECTING;
+      const authRecord = await this.getAuthRecord(sessionId);
       const { state, saveCreds } = await this.useMongoAuthState(sessionId);
-      const { version } = await fetchLatestBaileysVersion();
+      const hasPersistedCreds = Boolean(authRecord?.creds);
 
       const socket = makeWASocket({
-        version,
         logger: pino({ level: 'silent' }) as any,
         auth: state,
-        browser: Browsers.windows('Desktop'),
+        browser: hasPersistedCreds
+          ? Browsers.windows('Desktop')
+          : Browsers.windows('Google Chrome'),
         connectTimeoutMs: 60000,
         markOnlineOnConnect: false,
+        syncFullHistory: hasPersistedCreds,
+        getMessage: async (key: any) => this.getStoredBaileysMessage(key),
+        cachedGroupMetadata: async (jid: string) =>
+          instance.groupMetadataCache.get(jid) ||
+          (await this.refreshGroupMetadataCache(sessionId, jid)),
       });
 
       instance.socket = socket;
@@ -518,6 +643,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         chats.forEach(chat => { if (chat.id) instance.chats.set(chat.id, chat); });
         contacts.forEach(contact => { if (contact.id) instance.contacts.set(contact.id, contact); });
         this.syncChatSnapshots(sessionId, chats).catch(() => undefined);
+        this.persistGroupsFromCache(
+          sessionId,
+          chats.filter((chat) => chat?.id?.includes?.('@g.us')),
+        ).catch(() => undefined);
       });
 
       socket.ev.on('chats.upsert', (chats: any[]) => {
@@ -537,6 +666,26 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
       socket.ev.on('contacts.upsert', (contacts: any[]) => {
         contacts.forEach((contact: any) => { if (contact.id) instance.contacts.set(contact.id, contact); });
+      });
+
+      socket.ev.on('contacts.update', (contacts: any[]) => {
+        contacts.forEach((contact: any) => {
+          if (!contact.id) return;
+          const current = instance.contacts.get(contact.id) || {};
+          instance.contacts.set(contact.id, { ...current, ...contact });
+        });
+      });
+
+      socket.ev.on('groups.upsert', (groups: any[]) => {
+        this.persistGroupsFromCache(sessionId, groups).catch(() => undefined);
+      });
+
+      socket.ev.on('groups.update', (groups: any[]) => {
+        this.persistGroupsFromCache(sessionId, groups).catch(() => undefined);
+      });
+
+      socket.ev.on('group-participants.update', async ({ id }: any) => {
+        await this.refreshGroupMetadataCache(sessionId, id);
       });
 
       socket.ev.on('connection.update', async (update: any) => {
@@ -559,8 +708,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         if (connection === 'close') {
           const { DisconnectReason } = await this.getBaileys();
           const shouldReconnect =
-            (lastDisconnect?.error as Boom)?.output?.statusCode !==
-            DisconnectReason.loggedOut;
+            disconnectCode !== DisconnectReason.loggedOut &&
+            disconnectCode !== DisconnectReason.badSession;
 
           if (shouldReconnect) {
             instance.status = WhatsAppStatus.DISCONNECTED;
@@ -595,6 +744,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           instance.qrCodeData = null;
           instance.retryCount = 0;
 
+          try {
+            const groups = await (socket as any).groupFetchAllParticipating();
+            await this.persistGroupsFromCache(sessionId, Object.values(groups || {}));
+          } catch (error) {}
+
           const user = socket.user;
           if (user?.id) {
             const phone = user.id.split(':')[0].split('@')[0];
@@ -608,65 +762,103 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       });
 
       socket.ev.on('messages.upsert', async (m: any) => {
-        if (m.type === 'notify') {
-          for (const msg of m.messages) {
-            if (msg.message) {
-              const remoteJid = msg.key.remoteJid;
-              if (!remoteJid) continue;
+        if (m.type !== 'notify' && m.type !== 'append') {
+          return;
+        }
 
-              const textMessage = this.getMessageText(msg.message);
-              const mediaPayload = this.getMediaPayload(msg.message);
-              const isGroup = remoteJid.includes('@g.us');
+        for (const msg of m.messages || []) {
+          if (!msg?.message || !msg?.key?.id) continue;
 
-              let profilePicUrl = undefined;
-              try {
-                profilePicUrl = await socket
-                  .profilePictureUrl(remoteJid, 'image')
-                  .catch(() => undefined);
-              } catch (e) {}
+          const remoteJid = msg.key.remoteJid;
+          if (this.shouldIgnoreJid(remoteJid)) continue;
 
-              await this.storeMessage(sessionId, remoteJid, {
-                id: msg.key.id!,
-                text: textMessage,
-                sender: msg.key.fromMe ? 'me' : 'them',
-                profilePicUrl,
-                senderName: msg.pushName || msg.verifiedBizName,
-                contactName: msg.pushName || msg.verifiedBizName,
-                contactNumber: this.normalizeContactNumber(remoteJid),
-                isGroup,
-                mediaType: mediaPayload.mediaType,
-                mimetype: mediaPayload.mimetype,
-                fileSize: mediaPayload.fileSize,
-              });
-
-              if (!msg.key.fromMe && !isGroup && textMessage) {
-                const phoneNumber = this.normalizeContactNumber(remoteJid);
-                try {
-                  const aiResponse = await this.aiChatService.consultarAssistente({
-                    perguntaUsuario: textMessage,
-                    telefoneDoUsuario: phoneNumber,
-                    sessionId,
-                    remoteJid,
-                  });
-
-                  if (aiResponse) {
-                    const sent = await socket.sendMessage(remoteJid, { text: aiResponse });
-                    await this.storeMessage(sessionId, remoteJid, {
-                      id: sent?.key?.id || `${Date.now()}`,
-                      text: aiResponse,
-                      sender: 'me',
-                      profilePicUrl,
-                      contactNumber: phoneNumber,
-                      contactName: msg.pushName || msg.verifiedBizName,
-                      senderName: 'IA',
-                    });
-                  }
-                } catch (err) {
-                  console.error('Erro ao processar mensagem com IA:', err);
-                }
-              }
-            }
+          const processingKey = `${sessionId}:${msg.key.id}`;
+          if (this.processingMessages.has(processingKey)) {
+            continue;
           }
+
+          this.processingMessages.add(processingKey);
+
+          try {
+            const textMessage = this.getMessageText(msg.message);
+            const mediaPayload = this.getMediaPayload(msg.message);
+            const isGroup = remoteJid.includes('@g.us');
+            const contactNumber = this.normalizeContactNumber(remoteJid);
+
+            let profilePicUrl = undefined;
+            try {
+              profilePicUrl = await socket
+                .profilePictureUrl(remoteJid, 'image')
+                .catch(() => undefined);
+            } catch (e) {}
+
+            await this.storeMessage(sessionId, remoteJid, {
+              id: msg.key.id,
+              text: textMessage,
+              sender: msg.key.fromMe ? 'me' : 'them',
+              profilePicUrl,
+              senderName: msg.pushName || msg.verifiedBizName,
+              contactName: msg.pushName || msg.verifiedBizName,
+              contactNumber,
+              isGroup,
+              mediaType: mediaPayload.mediaType,
+              mimetype: mediaPayload.mimetype,
+              fileSize: mediaPayload.fileSize,
+            });
+
+            if (msg.key.fromMe || isGroup || !textMessage?.trim()) {
+              continue;
+            }
+
+            const aiResponse = await this.aiChatService.consultarAssistente({
+              perguntaUsuario: textMessage,
+              telefoneDoUsuario: contactNumber,
+              sessionId,
+              remoteJid,
+            });
+
+            if (!aiResponse?.trim()) {
+              continue;
+            }
+
+            const sent = await socket.sendMessage(remoteJid, { text: aiResponse });
+            await this.storeMessage(sessionId, remoteJid, {
+              id: sent?.key?.id || `${Date.now()}`,
+              text: aiResponse,
+              sender: 'me',
+              profilePicUrl,
+              contactNumber,
+              contactName: msg.pushName || msg.verifiedBizName,
+              senderName: 'IA',
+            });
+          } catch (err) {
+            console.error('Erro ao processar mensagem com IA:', err);
+          } finally {
+            this.processingMessages.delete(processingKey);
+          }
+        }
+      });
+
+      socket.ev.on('messages.update', async (updates: any[]) => {
+        for (const update of updates || []) {
+          const providerMsgId = update?.key?.id;
+          if (!providerMsgId) continue;
+
+          const status =
+            update?.status === 3
+              ? 'READ'
+              : update?.status === 2
+                ? 'DELIVERED'
+                : update?.status === 1
+                  ? 'SENT'
+                  : undefined;
+
+          if (!status) continue;
+
+          await this.prisma.chatMessage.updateMany({
+            where: { provider_msg_id: providerMsgId },
+            data: { status },
+          });
         }
       });
 
@@ -677,7 +869,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async logout(sessionId: string) {
-    const instance = this.instances.get(sessionId);
+    const instance = await this.ensureSocketReady(sessionId);
     if (instance) {
       if (instance.socket) {
         try { await instance.socket.logout(); } catch (e) { }
@@ -765,6 +957,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     instance.phoneNumber = undefined;
     instance.chats.clear();
     instance.contacts.clear();
+    instance.groupMetadataCache.clear();
 
     await this.clearAuthRecord(sessionId);
 
@@ -1061,7 +1254,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   async getGroups(sessionId: string) {
     const instance = await this.ensureSocketReady(sessionId);
-    const groups = await (instance.socket as any).groupFetchAllFull();
+    const groups =
+      (await (instance.socket as any).groupFetchAllParticipating().catch(() => null)) ||
+      Object.fromEntries(instance.groupMetadataCache.entries());
     const normalizedGroups = await Promise.all(
       Object.values(groups).map(async (g: any) => {
         let profilePicUrl: string | undefined;
@@ -1085,6 +1280,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         };
       }),
     );
+
+    await this.persistGroupsFromCache(sessionId, Object.values(groups || {}));
+    return normalizedGroups.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async enviarMensagemDireta(sessionId: string, jid: string, mensagem: string) {
@@ -1105,6 +1303,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       }
       target = `${target}@s.whatsapp.net`;
     }
+
+    if (target.includes('@g.us')) {
+      await this.refreshGroupMetadataCache(sessionId, target);
+    }
+
     const result = await instance.socket.sendMessage(target, { text: mensagem });
 
     await this.storeMessage(sessionId, target, {
