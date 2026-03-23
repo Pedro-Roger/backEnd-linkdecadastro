@@ -18,6 +18,7 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { AdminCrmModule } from './admin-crm/admin-crm.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 import { AgentsModule } from './agents/agents.module';
+import { LocationsModule } from './locations/locations.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { AgentsModule } from './agents/agents.module';
     AdminCrmModule,
     AiAssistantModule,
     AgentsModule,
+    LocationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
