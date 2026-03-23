@@ -104,7 +104,7 @@ export class EventsService {
 
   async getEventBySlug(slug: string) {
     const normalizedSlug = slug.toLowerCase().trim();
-    const event = await this.eventsRepository.findUnique({
+    let event = await this.eventsRepository.findUnique({
       where: { slug: normalizedSlug },
       include: {
         _count: {
@@ -112,6 +112,17 @@ export class EventsService {
         },
       },
     });
+
+    if (!event && normalizedSlug.startsWith('evt-')) {
+      event = await this.eventsRepository.findUnique({
+        where: { linkId: normalizedSlug },
+        include: {
+          _count: {
+            select: { registrations: true },
+          },
+        },
+      });
+    }
 
     if (!event) {
       throw new NotFoundException('Evento não encontrado');

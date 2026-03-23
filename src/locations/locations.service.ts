@@ -9,6 +9,11 @@ type CityOption = {
   nome: string;
 };
 
+type BrasilApiCityOption = {
+  nome: string;
+  codigo_ibge?: string;
+};
+
 type CepLookupResult = {
   cep: string;
   state: string;
@@ -51,6 +56,10 @@ const FALLBACK_STATES: StateOption[] = [
 export class LocationsService {
   private readonly cache = new Map<string, { expiresAt: number; value: any }>();
   private readonly ttlMs = 1000 * 60 * 60 * 6;
+
+  private normalizeCityName(name: string) {
+    return name.replace(/\s+\([^)]+\)\s*$/u, '').trim();
+  }
 
   private readCache<T>(key: string): T | null {
     const entry = this.cache.get(key);
@@ -131,13 +140,32 @@ export class LocationsService {
     const cached = this.readCache<CityOption[]>(cacheKey);
     if (cached) return cached;
 
-    const cities = await this.trySources<CityOption[]>([
-      `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${normalizedState}/municipios`,
-    ]);
+    try {
+      const cities = await this.trySources<Array<CityOption | BrasilApiCityOption>>([
+        `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${normalizedState}/municipios`,
+        `https://brasilapi.com.br/api/ibge/municipios/v1/${normalizedState}?providers=dados-abertos-br,gov,wikipedia`,
+      ]);
 
-    const sorted = [...cities].sort((a, b) => a.nome.localeCompare(b.nome));
-    this.writeCache(cacheKey, sorted);
-    return sorted;
+      const normalizedCities = cities
+        .map((city) => ({
+          nome: this.normalizeCityName((city?.nome || '').trim()),
+        }))
+        .filter((city) => city.nome.length > 0);
+
+      const uniqueCities = normalizedCities.filter(
+        (city, index, allCities) =>
+          allCities.findIndex((candidate) => candidate.nome === city.nome) === index,
+      );
+
+      const sorted = uniqueCities.sort((a, b) =>
+        a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }),
+      );
+      this.writeCache(cacheKey, sorted);
+      return sorted;
+    } catch (error) {
+      this.writeCache(cacheKey, []);
+      return [];
+    }
   }
 
   async lookupCep(cep: string): Promise<CepLookupResult | null> {
