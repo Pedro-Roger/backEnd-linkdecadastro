@@ -100,7 +100,6 @@ export class AdminCoursesService {
     this.assertAdmin(userRole);
 
     try {
-      console.log('listAllEnrollmentsForWhatsApp filters:', filters); // Debug log
       // Construction do filtro do Prisma
       const where: any = {};
 
@@ -179,7 +178,6 @@ export class AdminCoursesService {
         }
 
         // Buscar inscrições deste evento
-        console.log('[DEBUG] Buscando registrations para eventId:', eventId);
         const registrations = await this.registrationsRepository.findMany({
           where: {
             eventId: eventId,
@@ -201,11 +199,6 @@ export class AdminCoursesService {
             event: { select: { title: true } },
           },
         });
-        console.log('[DEBUG] Registrations encontrados:', registrations.length);
-        console.log(
-          '[DEBUG] Primeiros 3 registros:',
-          registrations.slice(0, 3),
-        );
         users = registrations;
       } else {
         // Comportamento padrão: buscar todos os usuários E todas as inscrições em eventos
@@ -335,14 +328,12 @@ export class AdminCoursesService {
       );
 
       console.log('[DEBUG] Participantes únicos:', uniqueParticipants.length);
-      console.log('[DEBUG] Retornando resposta...');
 
       return {
         total: uniqueParticipants.length,
         participantes: uniqueParticipants,
       };
     } catch (error) {
-      console.error('Error ANY in listAllEnrollmentsForWhatsApp:', error);
       throw error;
     }
   }

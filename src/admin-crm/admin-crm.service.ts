@@ -1,13 +1,68 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+
+const CRM_PIPELINES_COLLECTION = 'crm_contact_pipelines';
+const DEFAULT_STAGE = 'NOVO_LEAD';
 
 @Injectable()
 export class AdminCrmService {
     constructor(private readonly prisma: PrismaService) { }
 
+    private readonly pipelineStages = [
+        'NOVO_LEAD',
+        'CONTATO_INICIAL',
+        'QUALIFICACAO',
+        'PROPOSTA',
+        'NEGOCIACAO',
+        'FECHADO',
+        'PERDIDO',
+    ];
+
+    private async runCommand<T = any>(command: Record<string, unknown>): Promise<T> {
+        return (this.prisma as any).$runCommandRaw(command);
+    }
+
+    private async findMany<T>(
+        collection: string,
+        filter: Record<string, unknown>,
+        sort?: Record<string, 1 | -1>,
+    ) {
+        const result = await this.runCommand<{ cursor?: { firstBatch?: T[] } }>({
+            find: collection,
+            filter,
+            sort: sort || { updated_at: -1 },
+        });
+
+        return result?.cursor?.firstBatch || [];
+    }
+
+    private async findOne<T>(collection: string, filter: Record<string, unknown>) {
+        const items = await this.findMany<T>(collection, filter, { updated_at: -1 });
+        return items[0] || null;
+    }
+
+    private async updateOne(
+        collection: string,
+        filter: Record<string, unknown>,
+        $set: Record<string, unknown>,
+        upsert = false,
+    ) {
+        await this.runCommand({
+            update: collection,
+            updates: [
+                {
+                    q: filter,
+                    u: { $set },
+                    upsert,
+                    multi: false,
+                },
+            ],
+        });
+    }
+
     private assertAdmin(role?: string) {
         if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
-            throw new ForbiddenException('Não autorizado');
+            throw new ForbiddenException('Nao autorizado');
         }
     }
 
@@ -20,13 +75,54 @@ export class AdminCrmService {
         return { ...otherFilters, createdBy: userId };
     }
 
+    private normalizePhone(phone?: string | null) {
+        return String(phone || '').replace(/\D/g, '');
+    }
+
+    private buildContactKey(contact: {
+        id: string;
+        type: 'USER' | 'GUEST';
+        email?: string | null;
+        phone?: string | null;
+    }) {
+        const email = String(contact.email || '').trim().toLowerCase();
+        const phone = this.normalizePhone(contact.phone);
+
+        if (phone) return `phone:${phone}`;
+        if (email) return `email:${email}`;
+        return `${contact.type.toLowerCase()}:${contact.id}`;
+    }
+
+    private getStageLabel(stage: string) {
+        return stage
+            .toLowerCase()
+            .split('_')
+            .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ');
+    }
+
+    getPipelineStages() {
+        return this.pipelineStages.map((stage) => ({
+            key: stage,
+            label: this.getStageLabel(stage),
+        }));
+    }
+
     async listAllContacts(userId: string, userRole?: string) {
         this.assertAdmin(userRole);
 
         const ownedEventsWhere = this.getOwnedWhereClause(userId, userRole);
         const ownedCoursesWhere = this.getOwnedWhereClause(userId, userRole);
 
-        // Buscar usuários com matrículas em cursos do admin
+        const pipelines = await this.findMany<any>(
+            CRM_PIPELINES_COLLECTION,
+            { owner_user_id: userId },
+            { updated_at: -1 },
+        );
+        const pipelinesMap = new Map(
+            pipelines.map((pipeline) => [pipeline.contact_key, pipeline]),
+        );
+
         const usersWithEnrollments = await this.prisma.user.findMany({
             where: {
                 enrollments: {
@@ -59,11 +155,10 @@ export class AdminCrmService {
             },
         });
 
-        // Buscar registros (guests) em eventos do admin que não necessariamente têm um User vinculado
         const registrations = await this.prisma.registration.findMany({
             where: {
                 event: ownedEventsWhere,
-                userId: null, // Apenas guests
+                userId: null,
             },
             include: {
                 event: {
@@ -72,48 +167,62 @@ export class AdminCrmService {
             },
         });
 
-        // Unificar e formatar para o CRM
         const contactsMap = new Map<string, any>();
 
-        // Adicionar usuários registrados
-        usersWithEnrollments.forEach((u) => {
-            const key = u.email || u.phone || u.id;
-            contactsMap.set(key, {
-                id: u.id,
-                name: u.name,
-                email: u.email,
-                phone: u.phone,
-                city: u.city,
-                state: u.state,
-                type: 'USER',
-                participantType: u.participantType,
-                lastInteraction: u.updatedAt,
+        usersWithEnrollments.forEach((user) => {
+            const key = user.email || user.phone || user.id;
+            const baseContact = {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                city: user.city,
+                state: user.state,
+                type: 'USER' as const,
+                participantType: user.participantType,
+                lastInteraction: user.updatedAt,
                 source: [
-                    ...u.enrollments.map((e) => `Curso: ${e.course.title}`),
-                    ...u.registrations.map((r) => `Evento: ${r.event.title}`),
+                    ...user.enrollments.map((enrollment) => `Curso: ${enrollment.course.title}`),
+                    ...user.registrations.map((registration) => `Evento: ${registration.event.title}`),
                 ],
+            };
+
+            const pipeline = pipelinesMap.get(this.buildContactKey(baseContact));
+
+            contactsMap.set(key, {
+                ...baseContact,
+                crmStage: pipeline?.stage || DEFAULT_STAGE,
+                crmUpdatedAt: pipeline?.updated_at || user.updatedAt,
             });
         });
 
-        // Adicionar guests de eventos
-        registrations.forEach((r) => {
-            const key = r.email || r.phone || r.id;
+        registrations.forEach((registration) => {
+            const key = registration.email || registration.phone || registration.id;
             if (contactsMap.has(key)) {
-                contactsMap.get(key).source.push(`Evento: ${r.event.title}`);
-            } else {
-                contactsMap.set(key, {
-                    id: r.id,
-                    name: r.name,
-                    email: r.email,
-                    phone: r.phone,
-                    city: r.city,
-                    state: r.state,
-                    type: 'GUEST',
-                    participantType: r.participantType,
-                    lastInteraction: r.updatedAt,
-                    source: [`Evento: ${r.event.title}`],
-                });
+                contactsMap.get(key).source.push(`Evento: ${registration.event.title}`);
+                return;
             }
+
+            const baseContact = {
+                id: registration.id,
+                name: registration.name,
+                email: registration.email,
+                phone: registration.phone,
+                city: registration.city,
+                state: registration.state,
+                type: 'GUEST' as const,
+                participantType: registration.participantType,
+                lastInteraction: registration.updatedAt,
+                source: [`Evento: ${registration.event.title}`],
+            };
+
+            const pipeline = pipelinesMap.get(this.buildContactKey(baseContact));
+
+            contactsMap.set(key, {
+                ...baseContact,
+                crmStage: pipeline?.stage || DEFAULT_STAGE,
+                crmUpdatedAt: pipeline?.updated_at || registration.updatedAt,
+            });
         });
 
         return Array.from(contactsMap.values()).sort(
@@ -121,6 +230,65 @@ export class AdminCrmService {
                 new Date(b.lastInteraction).getTime() -
                 new Date(a.lastInteraction).getTime(),
         );
+    }
+
+    async updateContactStage(
+        userId: string,
+        userRole: string | undefined,
+        body: {
+            contactId: string;
+            type: 'USER' | 'GUEST';
+            email?: string;
+            phone?: string;
+            stage: string;
+        },
+    ) {
+        this.assertAdmin(userRole);
+
+        if (!this.pipelineStages.includes(body.stage)) {
+            throw new BadRequestException('Etapa do funil invalida.');
+        }
+
+        const contactKey = this.buildContactKey({
+            id: body.contactId,
+            type: body.type,
+            email: body.email,
+            phone: body.phone,
+        });
+
+        const now = new Date();
+        const current = await this.findOne<any>(CRM_PIPELINES_COLLECTION, {
+            owner_user_id: userId,
+            contact_key: contactKey,
+        });
+
+        const next = {
+            id: current?.id || `${userId}-${contactKey}`,
+            owner_user_id: userId,
+            contact_id: body.contactId,
+            contact_type: body.type,
+            contact_key: contactKey,
+            email: body.email?.trim()?.toLowerCase() || null,
+            phone: this.normalizePhone(body.phone) || null,
+            stage: body.stage,
+            created_at: current?.created_at || now,
+            updated_at: now,
+        };
+
+        await this.updateOne(
+            CRM_PIPELINES_COLLECTION,
+            { owner_user_id: userId, contact_key: contactKey },
+            next,
+            true,
+        );
+
+        return {
+            success: true,
+            contactKey,
+            stage: next.stage,
+            stageLabel: this.getStageLabel(next.stage),
+            updatedAt: next.updated_at,
+        };
     }
 
     async getCrmStats(userId: string, userRole?: string) {
@@ -146,7 +314,7 @@ export class AdminCrmService {
             totalEvents,
             totalRegistrations,
             totalEnrollments,
-            totalLeads: totalRegistrations + totalEnrollments, // Simplificado
+            totalLeads: totalRegistrations + totalEnrollments,
         };
     }
 }

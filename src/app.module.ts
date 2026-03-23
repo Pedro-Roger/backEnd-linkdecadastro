@@ -23,6 +23,7 @@ import { AgentsModule } from './agents/agents.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: ['.env.local', '.env'],
     }),
     PrismaModule,
     AuthModule,

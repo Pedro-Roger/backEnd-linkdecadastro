@@ -13,14 +13,34 @@ export class AiAssistantController {
     }
 
     @Put('config')
-    async updateConfig(@Request() req: any, @Body() body: { isActive?: boolean; prompt?: string; context?: string }) {
+    async updateConfig(
+        @Request() req: any,
+        @Body()
+        body: {
+            isActive?: boolean;
+            prompt?: string;
+            context?: string;
+            model?: string;
+            apiKey?: string;
+            apiKeyLabel?: string;
+            allowEventCreation?: boolean;
+            allowCourseCreation?: boolean;
+            defaultMaxRegistrations?: number;
+        },
+    ) {
         return this.aiAssistantService.updateConfig(req.user.id, body);
     }
 
     @Post('chat')
     async chat(
         @Request() req: any,
-        @Body() body: { message: string; history?: Array<{ role: 'user' | 'assistant'; content: string }> },
+        @Body()
+        body: {
+            message: string;
+            mediaUrl?: string | null;
+            history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+            pendingAction?: any;
+        },
     ) {
         return this.aiAssistantService.chat(req.user.id, body);
     }

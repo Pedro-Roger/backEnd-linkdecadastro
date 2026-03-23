@@ -66,7 +66,13 @@ export class AiChatService {
       where: { userId: channelMember.user_id },
     });
 
-    if (!config?.isActive) {
+    const hasBoundAutonomousAgent = Boolean(
+      resolvedAgent.agent &&
+        resolvedAgent.agent.is_active &&
+        resolvedAgent.mode === 'AUTONOMOUS',
+    );
+
+    if (!config?.isActive && !hasBoundAutonomousAgent) {
       return null;
     }
 
@@ -156,10 +162,10 @@ AGENTE VINCULADO:
 - Modo da conversa: ${resolvedAgent.mode}
 
 PERSONA PERSONALIZADA:
-${resolvedAgent.agent?.instructions || config.prompt || 'Atenda com educacao, naturalidade e clareza.'}
+${resolvedAgent.agent?.instructions || config?.prompt || 'Atenda com educacao, naturalidade e clareza.'}
 
 BASE DE CONHECIMENTO:
-${resolvedAgent.agent?.knowledge_base || config.context || 'Sem contexto adicional cadastrado.'}
+${resolvedAgent.agent?.knowledge_base || config?.context || 'Sem contexto adicional cadastrado.'}
 
 RESUMO OPERACIONAL DA CONVERSA:
 ${resolvedAgent.route?.memory_summary || '- Sem resumo salvo'}

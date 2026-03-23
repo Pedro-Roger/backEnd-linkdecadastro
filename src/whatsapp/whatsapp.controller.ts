@@ -20,10 +20,6 @@ import { WhatsAppService } from './whatsapp.service';
 export class WhatsAppController {
   constructor(private readonly whatsappService: WhatsAppService) { }
 
-  private debug(label: string, payload: Record<string, any>) {
-    console.log(`[WhatsApp Debug] ${label}`, payload);
-  }
-
   private rethrow(error: any, fallbackStatus = HttpStatus.INTERNAL_SERVER_ERROR): never {
     if (error instanceof HttpException) {
       throw error;
@@ -41,13 +37,6 @@ export class WhatsAppController {
         req.user.id,
         sessionId,
       );
-
-      this.debug('getActiveSessionId', {
-        userId: req.user?.id,
-        userEmail: req.user?.email,
-        sessionId,
-        userHasAccessToSession: hasAccess,
-      });
 
       if (!hasAccess) {
         throw new ForbiddenException('Voce nao tem acesso a esta sessao de WhatsApp.');
@@ -69,12 +58,6 @@ export class WhatsAppController {
   async listSessions(@Req() req: any) {
     try {
       const sessions = await this.whatsappService.listUserSessions(req.user.id);
-      this.debug('listSessions', {
-        userId: req.user?.id,
-        userEmail: req.user?.email,
-        count: sessions.length,
-        sessionIds: sessions.map((session) => session.id),
-      });
       return { success: true, sessions };
     } catch (error: any) {
       this.rethrow(error);
@@ -85,12 +68,6 @@ export class WhatsAppController {
   async createSession(@Req() req: any, @Body('name') name: string) {
     try {
       const session = await this.whatsappService.createSession(req.user.id, name || 'Novo WhatsApp');
-      this.debug('createSession', {
-        userId: req.user?.id,
-        userEmail: req.user?.email,
-        createdSessionId: session.id,
-        createdSessionName: session.instance_name,
-      });
       return { success: true, session };
     } catch (error: any) {
       this.rethrow(error);
