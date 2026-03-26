@@ -27,7 +27,7 @@ export class RegistrationsService {
     pondCount?: number;
     waterArea?: number;
   }) {
-    // Verificar se já existe inscrição PARA ESTE EVENTO com este CPF
+    // Verificar se jÃƒÆ’Ã‚Â¡ existe inscriÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o PARA ESTE EVENTO com este CPF
     const existingRegistration = await this.prisma.registration.findFirst({
       where: {
         cpf: data.cpf,
@@ -36,7 +36,17 @@ export class RegistrationsService {
     });
 
     if (existingRegistration) {
-      throw new Error('CPF já cadastrado neste evento');
+      return {
+        error: {
+          message: 'Voce ja esta inscrito neste evento',
+          status: 409,
+          existingRegistration: {
+            id: existingRegistration.id,
+            status: existingRegistration.status,
+            createdAt: existingRegistration.createdAt,
+          },
+        },
+      };
     }
 
     let municipalityLimit = await this.prisma.municipalityLimit.findFirst({
@@ -103,9 +113,18 @@ export class RegistrationsService {
     return registration;
   }
 
-  // Novo método para buscar dados de cadastro anterior pelo CPF
-  async findByCpf(cpf: string) {
-    // Busca o registro mais recente com este CPF
+  // Novo mÃƒÆ’Ã‚Â©todo para buscar dados de cadastro anterior pelo CPF
+  async findByCpf(cpf: string, eventId?: string) {
+    const existingRegistration = eventId
+      ? await this.prisma.registration.findFirst({
+          where: { cpf, eventId },
+          select: {
+            id: true,
+            createdAt: true,
+          },
+        })
+      : null;
+
     const registration = await this.prisma.registration.findFirst({
       where: { cpf },
       orderBy: { createdAt: 'desc' },
@@ -124,7 +143,6 @@ export class RegistrationsService {
       },
     });
 
-    // Se não achar em registrations, tenta em users
     if (!registration) {
       const user = await this.prisma.user.findFirst({
         where: { cpf },
@@ -143,23 +161,28 @@ export class RegistrationsService {
 
       if (user) {
         return {
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          state: user.state,
-          city: user.city,
-          participantType: user.participantType,
-          pondCount: user.ponds,
-          waterArea: user.waterArea,
-          // Campos default que o user não tem
-          cep: '',
-          locality: '',
+          profile: {
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+            state: user.state,
+            city: user.city,
+            participantType: user.participantType,
+            pondCount: user.ponds,
+            waterArea: user.waterArea,
+            cep: '',
+            locality: '',
+          },
+          existingRegistration,
         };
       }
       return null;
     }
 
-    return registration;
+    return {
+      profile: registration,
+      existingRegistration,
+    };
   }
 
   async handleRegistration(body: any) {
@@ -184,7 +207,7 @@ export class RegistrationsService {
     });
 
     if (!event || event.status !== 'ACTIVE') {
-      throw new NotFoundException('Evento não encontrado ou inativo');
+      throw new NotFoundException('Evento nao encontrado ou inativo');
     }
 
     const participantType =
@@ -196,6 +219,10 @@ export class RegistrationsService {
       ...data,
       participantType,
     });
+
+    if ('error' in registration && registration.error) {
+      return registration;
+    }
 
     try {
       await this.emailService.sendRegistrationEmail(
@@ -218,10 +245,10 @@ export class RegistrationsService {
         });
       }
 
-      // Envio de WhatsApp automático
+      // Envio de WhatsApp automÃƒÆ’Ã‚Â¡tico
       await this.whatsappService.sendMessageToPhone(
         data.phone,
-        `Olá ${data.name.split(' ')[0]}, obrigado por se cadastrar no evento "${event.title}"! Seu cadastro foi confirmado com sucesso. ✅`
+        `Ola ${data.name.split(' ')[0]}, obrigado por se cadastrar no evento "${event.title}"! Seu cadastro foi confirmado com sucesso.`
       );
 
     } catch (error) {

@@ -64,6 +64,14 @@ export class CoursesController {
     return this.coursesService.checkEnrollment(req.user.id, courseId);
   }
 
+  @Get(':courseId/cpf/:cpf')
+  async findEnrollmentContextByCpf(
+    @Param('courseId') courseId: string,
+    @Param('cpf') cpf: string,
+  ) {
+    return this.coursesService.findEnrollmentContextByCpf(courseId, cpf);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post(':courseId/enroll')
   async enroll(
@@ -93,6 +101,10 @@ export class CoursesController {
       return {
         error: result.error.message,
         statusCode: result.error.status,
+        existingEnrollment:
+          'existingEnrollment' in result.error
+            ? result.error.existingEnrollment ?? null
+            : null,
       };
     }
 
@@ -129,6 +141,10 @@ export class CoursesController {
       return {
         error: result.error.message,
         statusCode: result.error.status,
+        existingEnrollment:
+          'existingEnrollment' in result.error
+            ? result.error.existingEnrollment ?? null
+            : null,
       };
     }
 

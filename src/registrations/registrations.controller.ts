@@ -26,10 +26,13 @@ export class RegistrationsController {
   }
 
   @Get('cpf/:cpf')
-  async findByCpf(@Param('cpf') cpf: string) {
-    const registration = await this.registrationsService.findByCpf(cpf);
+  async findByCpf(
+    @Param('cpf') cpf: string,
+    @Query('eventId') eventId?: string,
+  ) {
+    const registration = await this.registrationsService.findByCpf(cpf, eventId);
     if (!registration) {
-      throw new NotFoundException('CPF não encontrado');
+      throw new NotFoundException('CPF nao encontrado');
     }
     return registration;
   }
