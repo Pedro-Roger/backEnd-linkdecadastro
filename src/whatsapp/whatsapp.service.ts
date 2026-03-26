@@ -3,8 +3,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as QRCode from 'qrcode';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
+import { readFile } from 'fs/promises';
 import { AiChatService } from './ai-chat.service';
 import { AgentsService } from '../agents/agents.service';
+import { WhatsAppMessageRouterService } from './whatsapp-message-router.service';
 
 // We'll import types only to avoid runtime require() calls
 import type { WASocket } from '@whiskeysockets/baileys';
@@ -76,11 +78,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private BOT_REPLY_COOLDOWN_MS = 8000;
 
   private baileysModule: any = null;
+  private latestBaileysVersion: number[] | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiChatService: AiChatService,
     private readonly agentsService: AgentsService,
+    private readonly messageRouter: WhatsAppMessageRouterService,
   ) { }
 
   private async getBaileys() {
@@ -88,6 +92,47 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       this.baileysModule = await import('@whiskeysockets/baileys');
     }
     return this.baileysModule;
+  }
+
+  private async getBaileysSocketVersion() {
+    if (this.latestBaileysVersion) {
+      return this.latestBaileysVersion;
+    }
+
+    try {
+      const { fetchLatestBaileysVersion } = await this.getBaileys();
+      const latest = await fetchLatestBaileysVersion();
+      if (Array.isArray(latest?.version) && latest.version.length > 0) {
+        this.latestBaileysVersion = latest.version;
+        return latest.version;
+      }
+    } catch (error) {
+      console.error('[WhatsApp] Falha ao buscar versao mais recente do WhatsApp Web:', error);
+    }
+
+    return undefined;
+  }
+
+  private log(level: 'INFO' | 'WARN' | 'ERROR' | 'SUCCESS', message: string, metadata?: Record<string, unknown>) {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+      ...(metadata ? { metadata } : {}),
+    };
+    const payload = JSON.stringify(entry);
+
+    if (level === 'ERROR') {
+      console.error(payload);
+      return;
+    }
+
+    if (level === 'WARN') {
+      console.warn(payload);
+      return;
+    }
+
+    console.log(payload);
   }
 
   private shouldIgnoreJid(jid?: string | null) {
@@ -454,6 +499,29 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  private async waitForSessionSnapshot(
+    sessionId: string,
+    timeoutMs = 8000,
+    intervalMs = 400,
+  ) {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const instance = this.getInstance(sessionId);
+      const hasQrCode = Boolean(instance.qrCodeData?.base64);
+      const isReady = instance.status === WhatsAppStatus.READY;
+      const isFailure = instance.status === WhatsAppStatus.AUTH_FAILURE;
+
+      if (hasQrCode || isReady || isFailure) {
+        return instance;
+      }
+
+      await this.delay(intervalMs);
+    }
+
+    return this.getInstance(sessionId);
+  }
+
   private async updateChannelState(
     sessionId: string,
     data: Record<string, any>,
@@ -692,13 +760,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       const authRecord = await this.getAuthRecord(sessionId);
       const { state, saveCreds } = await this.useMongoAuthState(sessionId);
       const hasPersistedCreds = Boolean(authRecord?.creds);
+      const latestVersion = await this.getBaileysSocketVersion();
 
       const socket = makeWASocket({
         logger: pino({ level: 'silent' }) as any,
         auth: state,
-        browser: hasPersistedCreds
-          ? Browsers.windows('Desktop')
-          : Browsers.windows('Google Chrome'),
+        browser: Browsers.windows('Desktop'),
+        version: latestVersion,
         connectTimeoutMs: 60000,
         markOnlineOnConnect: false,
         syncFullHistory: hasPersistedCreds,
@@ -766,6 +834,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       socket.ev.on('connection.update', async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
         const disconnectCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+        const disconnectMessage =
+          lastDisconnect?.error?.message ||
+          lastDisconnect?.error?.data?.reason ||
+          'unknown_disconnect';
 
         if (qr) {
           instance.status = WhatsAppStatus.QR_CODE;
@@ -779,23 +851,48 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
         if (connection === 'close') {
           const { DisconnectReason } = await this.getBaileys();
+          const isRestartFlow =
+            disconnectCode === DisconnectReason.restartRequired ||
+            disconnectCode === DisconnectReason.connectionClosed ||
+            disconnectCode === DisconnectReason.timedOut ||
+            disconnectCode === DisconnectReason.unavailableService;
           const shouldReconnect =
             disconnectCode !== DisconnectReason.loggedOut &&
-            disconnectCode !== DisconnectReason.badSession;
+            disconnectCode !== DisconnectReason.badSession &&
+            disconnectCode !== DisconnectReason.multideviceMismatch;
           const hasPendingQr = Boolean(instance.qrCodeData?.base64);
+          const wasAuthenticated = Boolean(instance.phoneNumber || authRecord?.creds);
+
+          this.log('WARN', 'Socket WhatsApp fechado.', {
+            sessionId,
+            disconnectCode,
+            disconnectMessage,
+            shouldReconnect,
+            isRestartFlow,
+            hasPendingQr,
+            wasAuthenticated,
+          });
 
           if (shouldReconnect) {
-            instance.status = hasPendingQr
-              ? WhatsAppStatus.QR_CODE
-              : WhatsAppStatus.DISCONNECTED;
+            instance.status =
+              hasPendingQr
+                ? WhatsAppStatus.QR_CODE
+                : wasAuthenticated || isRestartFlow
+                  ? WhatsAppStatus.CONNECTING
+                  : WhatsAppStatus.DISCONNECTED;
             instance.socket = null;
             await this.updateChannelState(sessionId, {
-              status: hasPendingQr ? 'QR_CODE' : 'DISCONNECTED',
-              phone_number: null,
+              status: hasPendingQr
+                ? 'QR_CODE'
+                : wasAuthenticated || isRestartFlow
+                  ? 'CONNECTING'
+                  : 'DISCONNECTED',
+              ...(wasAuthenticated ? {} : { phone_number: null }),
             });
             if (instance.retryCount < this.MAX_RETRIES) {
               instance.retryCount++;
-              setTimeout(() => this.initializeClient(sessionId), this.RETRY_INTERVAL);
+              const reconnectDelay = isRestartFlow ? 1000 : this.RETRY_INTERVAL;
+              setTimeout(() => this.initializeClient(sessionId), reconnectDelay);
             }
           } else {
             instance.status = WhatsAppStatus.DISCONNECTED;
@@ -809,11 +906,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           }
         } else if (connection === 'connecting') {
           instance.status = WhatsAppStatus.CONNECTING;
+          this.log('INFO', 'Socket WhatsApp conectando.', { sessionId });
           await this.updateChannelState(sessionId, { status: 'CONNECTING' });
         } else if (connection === 'open') {
           instance.status = WhatsAppStatus.READY;
           instance.qrCodeData = null;
           instance.retryCount = 0;
+          this.log('SUCCESS', 'Socket WhatsApp conectado com sucesso.', {
+            sessionId,
+          });
 
           try {
             const groups = await (socket as any).groupFetchAllParticipating();
@@ -882,45 +983,40 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             }
 
             await this.enqueueContactTask(sessionId, remoteJid, async () => {
-              if (this.isBotCoolingDown(sessionId, remoteJid)) {
-                await this.aiChatService.registrarDiagnostico({
+              await this.messageRouter.handleIncomingMessage(
+                {
                   sessionId,
                   remoteJid,
                   providerMessageId: msg.key.id,
-                  status: 'SKIPPED',
-                  reason: 'contact_in_cooldown_window',
-                  mode: 'AUTONOMOUS',
-                  agentId: null,
-                  agentName: null,
-                  userMessage: textMessage,
-                });
-                return;
-              }
-
-              const aiResult = await this.aiChatService.consultarAssistente({
-                perguntaUsuario: textMessage,
-                telefoneDoUsuario: contactNumber,
-                sessionId,
-                remoteJid,
-                providerMessageId: msg.key.id,
-              });
-
-              if (!aiResult.reply?.trim()) {
-                return;
-              }
-
-              const sent = await socket.sendMessage(remoteJid, { text: aiResult.reply });
-              await this.storeMessage(sessionId, remoteJid, {
-                id: sent?.key?.id || `${Date.now()}`,
-                text: aiResult.reply,
-                sender: 'me',
-                profilePicUrl,
-                contactNumber,
-                contactName: msg.pushName || msg.verifiedBizName,
-                senderName: 'IA',
-              });
-
-              this.markBotCooldown(sessionId, remoteJid);
+                  text: textMessage,
+                  contactNumber,
+                  contactName: msg.pushName || msg.verifiedBizName,
+                },
+                {
+                  markAsRead: async () => {
+                    await this.markAsRead(sessionId, msg.key);
+                  },
+                  setTyping: async (active: boolean) => {
+                    if (!socket?.sendPresenceUpdate) return;
+                    await socket.sendPresenceUpdate(
+                      active ? 'composing' : 'paused',
+                      remoteJid,
+                    );
+                  },
+                  sendText: async (text: string, senderName = 'IA') => {
+                    const sent = await socket.sendMessage(remoteJid, { text });
+                    await this.storeMessage(sessionId, remoteJid, {
+                      id: sent?.key?.id || `${Date.now()}`,
+                      text,
+                      sender: 'me',
+                      profilePicUrl,
+                      contactNumber,
+                      contactName: msg.pushName || msg.verifiedBizName,
+                      senderName,
+                    });
+                  },
+                },
+              );
             });
           } catch (err) {
             console.error('Erro ao processar mensagem com IA:', err);
@@ -1025,13 +1121,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     ) {
       await this.initializeClient(sessionId);
     }
+
+    const current = await this.waitForSessionSnapshot(sessionId);
     return {
       status:
-        instance.status !== WhatsAppStatus.READY && instance.qrCodeData?.base64
+        current.status !== WhatsAppStatus.READY && current.qrCodeData?.base64
           ? WhatsAppStatus.QR_CODE
-          : instance.status,
-      qrCode: instance.qrCodeData?.qr,
-      qrCodeBase64: instance.qrCodeData?.base64,
+          : current.status,
+      qrCode: current.qrCodeData?.qr,
+      qrCodeBase64: current.qrCodeData?.base64,
     };
   }
 
@@ -1064,12 +1162,95 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     return this.getStatus(sessionId);
   }
 
+  async sendMessage(sessionId: string, to: string, text: string) {
+    const instance = await this.ensureSocketReady(sessionId);
+    const target = this.normalizeContactJid(to);
+    if (!target) {
+      throw new Error('Destino invalido para envio de mensagem.');
+    }
+
+    return instance.socket!.sendMessage(target, { text });
+  }
+
+  async sendImage(sessionId: string, to: string, imagePath: string, caption?: string) {
+    const instance = await this.ensureSocketReady(sessionId);
+    const target = this.normalizeContactJid(to);
+    if (!target) {
+      throw new Error('Destino invalido para envio de imagem.');
+    }
+
+    const image = await readFile(imagePath);
+    return instance.socket!.sendMessage(target, {
+      image,
+      caption,
+    });
+  }
+
+  async sendDocument(sessionId: string, to: string, filePath: string, filename?: string) {
+    const instance = await this.ensureSocketReady(sessionId);
+    const target = this.normalizeContactJid(to);
+    if (!target) {
+      throw new Error('Destino invalido para envio de documento.');
+    }
+
+    const document = await readFile(filePath);
+    return instance.socket!.sendMessage(target, {
+      document,
+      mimetype: 'application/octet-stream',
+      fileName: filename,
+    });
+  }
+
+  async sendAudio(sessionId: string, to: string, audioPath: string) {
+    const instance = await this.ensureSocketReady(sessionId);
+    const target = this.normalizeContactJid(to);
+    if (!target) {
+      throw new Error('Destino invalido para envio de audio.');
+    }
+
+    const audio = await readFile(audioPath);
+    return instance.socket!.sendMessage(target, {
+      audio,
+      mimetype: 'audio/mpeg',
+      ptt: false,
+    });
+  }
+
+  async sendButtonMessage(
+    sessionId: string,
+    to: string,
+    buttons: Array<{ id: string; text: string }>,
+    title: string,
+  ) {
+    const lines = [title, '', ...buttons.map((button, index) => `${index + 1}. ${button.text}`)];
+    return this.sendMessage(sessionId, to, lines.join('\n'));
+  }
+
+  async markAsRead(sessionId: string, messageKey: any) {
+    const instance = this.getInstance(sessionId);
+    if (!instance.socket || !messageKey) return;
+
+    try {
+      await instance.socket.readMessages([messageKey]);
+    } catch (error: any) {
+      this.log('WARN', 'Falha ao marcar mensagem como lida.', {
+        sessionId,
+        error: error?.message || 'unknown_error',
+      });
+    }
+  }
+
   async listUserSessions(userId: string) {
     const members = await this.prisma.chatChannelMember.findMany({
       where: {
         user_id: userId,
+        deleted_at: null,
+        channels: {
+          deleted_at: null,
+        },
       },
-      include: { channels: true }
+      include: { channels: true },
+      orderBy: { created_at: 'desc' },
     });
     return members.map(m => m.channels);
   }
@@ -1079,6 +1260,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       where: {
         user_id: userId,
         channel_id: sessionId,
+        deleted_at: null,
+        channels: {
+          deleted_at: null,
+        },
       },
     });
 
@@ -1103,6 +1288,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         deleted_at: null,
       }
     });
+
+    this.initializeClient(channel.id).catch((error) => {
+      console.error(`[WhatsApp] Falha ao inicializar sessao ${channel.id}:`, error);
+    });
+
     return channel;
   }
 

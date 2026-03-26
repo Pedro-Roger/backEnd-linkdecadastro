@@ -3,6 +3,7 @@ import { WhatsAppService } from './whatsapp.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiChatService } from './ai-chat.service';
 import { AgentsService } from '../agents/agents.service';
+import { WhatsAppMessageRouterService } from './whatsapp-message-router.service';
 
 describe('WhatsAppService', () => {
   let service: WhatsAppService;
@@ -47,6 +48,10 @@ describe('WhatsAppService', () => {
     }),
   };
 
+  const mockMessageRouter = {
+    handleIncomingMessage: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -62,6 +67,10 @@ describe('WhatsAppService', () => {
         {
           provide: AgentsService,
           useValue: mockAgentsService,
+        },
+        {
+          provide: WhatsAppMessageRouterService,
+          useValue: mockMessageRouter,
         },
       ],
     }).compile();

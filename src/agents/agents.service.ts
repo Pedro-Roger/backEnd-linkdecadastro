@@ -296,7 +296,7 @@ export class AgentsService {
       slug,
       description: body.description?.trim(),
       module: body.module || 'atendimento',
-      model: body.model || process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini',
+      model: body.model || process.env.OPENROUTER_MODEL || 'openai/gpt-oss-20b',
       instructions: body.instructions?.trim() || 'Atue como um agente especialista do módulo de atendimento.',
       knowledge_base: body.knowledgeBase?.trim(),
       is_active: body.isActive ?? true,

@@ -23,6 +23,12 @@ export interface AgentExecutionResult {
   lastIntent: string;
 }
 
+interface ConversationInsightParams {
+  sessionId: string;
+  remoteJid: string;
+  limit?: number;
+}
+
 const AGENT_RUNS_COLLECTION = 'service_agent_runs';
 const ROUTES_COLLECTION = 'service_agent_routes';
 
@@ -30,11 +36,105 @@ const ROUTES_COLLECTION = 'service_agent_routes';
 export class AiChatService {
   private static readonly INVOKE_URL =
     'https://openrouter.ai/api/v1/chat/completions';
+  private readonly providerRequestIntervalMs = Number(
+    process.env.OPENROUTER_REQUEST_INTERVAL_MS || 1200,
+  );
+  private readonly providerMaxRetries = Number(
+    process.env.OPENROUTER_MAX_RETRIES || 3,
+  );
+  private providerQueue: Promise<void> = Promise.resolve();
+  private lastProviderRequestAt = 0;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentsService: AgentsService,
   ) {}
+
+  private async delay(ms: number) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async enqueueProviderRequest<T>(task: () => Promise<T>): Promise<T> {
+    const previous = this.providerQueue;
+    let release!: () => void;
+
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    this.providerQueue = previous.finally(() => current);
+
+    await previous.catch(() => undefined);
+
+    const waitMs = Math.max(
+      0,
+      this.providerRequestIntervalMs - (Date.now() - this.lastProviderRequestAt),
+    );
+
+    if (waitMs > 0) {
+      await this.delay(waitMs);
+    }
+
+    this.lastProviderRequestAt = Date.now();
+
+    try {
+      return await task();
+    } finally {
+      release();
+    }
+  }
+
+  private getRetryDelayMs(attempt: number, retryAfterHeader: string | null) {
+    const retryAfterSeconds = Number(retryAfterHeader || 0);
+    if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+      return retryAfterSeconds * 1000;
+    }
+
+    return Math.min(12000, 1500 * 2 ** attempt);
+  }
+
+  private async invokeProvider(params: {
+    apiKey: string;
+    payload: Record<string, unknown>;
+  }) {
+    const { apiKey, payload } = params;
+
+    for (let attempt = 0; attempt <= this.providerMaxRetries; attempt++) {
+      const response = await fetch(AiChatService.INVOKE_URL, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        return response.json();
+      }
+
+      const status = response.status;
+      const retryable = status === 429 || status >= 500;
+      const retryAfterHeader = response.headers.get('retry-after');
+      const bodyText = await response.text().catch(() => '');
+
+      if (retryable && attempt < this.providerMaxRetries) {
+        const delayMs = this.getRetryDelayMs(attempt, retryAfterHeader);
+        await this.delay(delayMs);
+        continue;
+      }
+
+      const error = new Error(
+        `Erro na API OpenRouter: ${status} ${response.statusText}`,
+      ) as Error & { status?: number; bodyText?: string };
+      error.status = status;
+      error.bodyText = bodyText;
+      throw error;
+    }
+
+    throw new Error('Falha inesperada ao consultar o provedor de IA.');
+  }
 
   private async runCommand<T = any>(command: Record<string, unknown>): Promise<T> {
     return (this.prisma as any).$runCommandRaw(command);
@@ -236,6 +336,58 @@ export class AiChatService {
       memorySummary: params.memorySummary || '',
       actions: params.actions || [],
     });
+  }
+
+  async getConversationInsights(params: ConversationInsightParams) {
+    const { sessionId, remoteJid, limit = 12 } = params;
+
+    const [routeResponse, runsResponse] = await Promise.all([
+      this.runCommand<any>({
+        find: ROUTES_COLLECTION,
+        filter: {
+          channel_id: sessionId,
+          provider_uid: remoteJid,
+        },
+        limit: 1,
+      }),
+      this.runCommand<any>({
+        find: AGENT_RUNS_COLLECTION,
+        filter: {
+          session_id: sessionId,
+          remote_jid: remoteJid,
+        },
+        sort: { created_at: -1 },
+        limit,
+      }),
+    ]);
+
+    const route = routeResponse?.cursor?.firstBatch?.[0] || null;
+    const diagnostics = (runsResponse?.cursor?.firstBatch || []).map((run: any) => ({
+      id: run.id || run._id?.$oid || null,
+      createdAt: run.created_at,
+      status: run.status || 'SKIPPED',
+      reason: run.reason || 'unknown',
+      mode: run.mode || 'HUMAN',
+      agentId: run.agent_id || null,
+      agentName: run.agent_name || null,
+      userMessage: run.user_message || '',
+      reply: run.reply || null,
+      lastIntent: run.last_intent || '',
+      memorySummary: run.memory_summary || '',
+      actions: Array.isArray(run.actions)
+        ? run.actions.map((action: any) => ({
+            type: action?.type || 'unknown',
+            status: action?.status || 'completed',
+            detail: action?.detail || '',
+          }))
+        : [],
+    }));
+
+    return {
+      memorySummary: route?.memory_summary || diagnostics[0]?.memorySummary || '',
+      lastIntent: route?.last_intent || diagnostics[0]?.lastIntent || '',
+      diagnostics,
+    };
   }
 
   async consultarAssistente(params: {
@@ -525,7 +677,7 @@ ${perguntaUsuario}
         model:
           resolvedAgent.agent?.model ||
           process.env.OPENROUTER_MODEL ||
-          'openai/gpt-4.1-mini',
+          'openai/gpt-oss-20b',
         max_tokens: 500,
         temperature: 0.35,
         messages: [
@@ -534,23 +686,12 @@ ${perguntaUsuario}
         ],
       };
 
-      const response = await fetch(AiChatService.INVOKE_URL, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Erro na API OpenRouter: ${response.status} ${response.statusText}`,
-        );
-      }
-
-      const responseBody = (await response.json()) as any;
+      const responseBody = (await this.enqueueProviderRequest(() =>
+        this.invokeProvider({
+          apiKey,
+          payload,
+        }),
+      )) as any;
       const content = responseBody?.choices?.[0]?.message?.content?.trim() || null;
 
       const memorySummary = this.buildMemorySummary({
@@ -593,11 +734,13 @@ ${perguntaUsuario}
       });
 
       return result;
-    } catch (error) {
+    } catch (error: any) {
+      const failureReason =
+        error?.status === 429 ? 'provider_rate_limited' : 'provider_request_failed';
       const result: AgentExecutionResult = {
         ...baseResult,
         status: 'ERROR',
-        reason: 'provider_request_failed',
+        reason: failureReason,
         reply: null,
         actions: [],
         memorySummary: resolvedAgent.route?.memory_summary || '',
