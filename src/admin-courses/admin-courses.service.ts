@@ -26,6 +26,7 @@ import { EventsRepository } from '../events/events.repository';
 import { RegistrationsRepository } from '../registrations/registrations.repository';
 import { EnrollmentsRepository } from '../courses/enrollments.repository';
 import { UsersRepository } from '../auth/users.repository';
+import { WhatsAppProactiveFollowupService } from '../whatsapp/whatsapp-proactive-followup.service';
 
 @Injectable()
 export class AdminCoursesService {
@@ -36,6 +37,7 @@ export class AdminCoursesService {
     private readonly registrationsRepository: RegistrationsRepository,
     private readonly enrollmentsRepository: EnrollmentsRepository,
     private readonly usersRepository: UsersRepository,
+    private readonly proactiveFollowupService: WhatsAppProactiveFollowupService,
   ) { }
 
   private assertAdmin(role?: string) {
@@ -553,6 +555,21 @@ export class AdminCoursesService {
       if (!course) {
         throw new NotFoundException('Falha ao carregar curso recém-criado');
       }
+
+      this.proactiveFollowupService
+        .notifyInterestedContactsAboutCourse({
+          id: course.id,
+          title: course.title,
+          description: course.description,
+          slug: course.slug,
+          status: course.status,
+        })
+        .catch((error) => {
+          console.error(
+            '[AdminCourses] Falha ao disparar follow-up proativo do curso:',
+            error,
+          );
+        });
 
       return course;
     } catch (error: any) {

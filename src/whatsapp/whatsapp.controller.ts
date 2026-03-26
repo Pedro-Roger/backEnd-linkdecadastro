@@ -14,11 +14,15 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { WhatsAppService } from './whatsapp.service';
+import { AiChatService } from './ai-chat.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('api/whatsapp')
 export class WhatsAppController {
-  constructor(private readonly whatsappService: WhatsAppService) { }
+  constructor(
+    private readonly whatsappService: WhatsAppService,
+    private readonly aiChatService: AiChatService,
+  ) { }
 
   private rethrow(error: any, fallbackStatus = HttpStatus.INTERNAL_SERVER_ERROR): never {
     if (error instanceof HttpException) {
@@ -174,6 +178,24 @@ export class WhatsAppController {
       const sid = await this.getActiveSessionId(req, sessionId);
       const messages = await this.whatsappService.getMessages(sid, jid);
       return { success: true, messages };
+    } catch (error: any) {
+      this.rethrow(error);
+    }
+  }
+
+  @Get('conversation-insights')
+  async getConversationInsights(
+    @Req() req: any,
+    @Query('sessionId') sessionId: string,
+    @Query('jid') jid: string,
+  ) {
+    try {
+      const sid = await this.getActiveSessionId(req, sessionId);
+      const insights = await this.aiChatService.getConversationInsights({
+        sessionId: sid,
+        remoteJid: jid,
+      });
+      return { success: true, ...insights };
     } catch (error: any) {
       this.rethrow(error);
     }

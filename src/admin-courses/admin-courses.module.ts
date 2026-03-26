@@ -6,9 +6,16 @@ import { EventsModule } from '../events/events.module';
 import { CoursesModule } from '../courses/courses.module';
 import { RegistrationsModule } from '../registrations/registrations.module';
 import { AuthModule } from '../auth/auth.module';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 
 @Module({
-  imports: [EventsModule, CoursesModule, RegistrationsModule, AuthModule],
+  imports: [
+    EventsModule,
+    CoursesModule,
+    RegistrationsModule,
+    AuthModule,
+    WhatsAppModule,
+  ],
   controllers: [AdminCoursesController],
   providers: [AdminCoursesService, PrismaService],
 })

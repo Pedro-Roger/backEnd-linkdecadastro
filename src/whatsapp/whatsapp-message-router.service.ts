@@ -110,7 +110,7 @@ export class WhatsAppMessageRouterService {
         { exact: true },
       )
     ) {
-      return 'Oi. Como posso te ajudar hoje?';
+      return 'Oi! Como posso te ajudar hoje?';
     }
 
     if (
@@ -118,7 +118,7 @@ export class WhatsAppMessageRouterService {
         exact: true,
       })
     ) {
-      return 'Por nada. Se precisar de mais alguma coisa, sigo por aqui.';
+      return 'Imagina! Se precisar de algo mais, sigo por aqui.';
     }
 
     return null;
@@ -128,26 +128,26 @@ export class WhatsAppMessageRouterService {
     const normalized = text.toLowerCase();
 
     if (/(humano|atendente|suporte|pessoa)/.test(normalized)) {
-      return 'Claro. Posso seguir com voce por aqui e, se precisar, encaminho para atendimento humano.';
+      return 'Claro. Se voce preferir, eu posso encaminhar para atendimento humano e seguir te ajudando por aqui ate la.';
     }
 
     if (/(preco|preço|valor|plano|mensalidade)/.test(normalized)) {
-      return 'Posso te explicar os planos e valores por aqui. Se quiser, tambem posso direcionar voce para o atendimento comercial.';
+      return 'Consigo te explicar os planos e valores por aqui. Se fizer mais sentido, tambem posso te encaminhar para o comercial.';
     }
 
     if (/(evento|inscri|cadastro|link)/.test(normalized)) {
-      return 'Posso te ajudar com eventos, inscricoes e links de cadastro. Me diga qual evento ou objetivo voce procura.';
+      return 'Posso te ajudar com eventos, inscricoes e links de cadastro. Se quiser, me conta qual evento voce procura.';
     }
 
     if (/(curso|aula|treinamento|capacit)/.test(normalized)) {
-      return 'Posso te ajudar com cursos e capacitacoes. Se quiser, me diga qual curso voce procura ou qual e a sua duvida.';
+      return 'Posso te ajudar com cursos e capacitacoes. Se quiser, me fala qual curso voce procura ou qual duvida voce tem.';
     }
 
     if (/(obrigado|obrigada|valeu)/.test(normalized)) {
-      return 'Por nada. Se precisar de mais alguma coisa, sigo por aqui.';
+      return 'Imagina! Se precisar de algo mais, sigo por aqui.';
     }
 
-    return 'Recebi sua mensagem. Posso te ajudar com cadastro, eventos, cursos, planos ou atendimento.';
+    return 'Entendi. Me conta um pouco mais para eu conseguir te ajudar melhor.';
   }
 
   private async handleCommand(
@@ -300,7 +300,6 @@ export class WhatsAppMessageRouterService {
     });
 
     let aiResult: Awaited<typeof responsePromise> | null = null;
-    let sentProcessingMessage = false;
 
     try {
       const timedResponse = await Promise.race([
@@ -314,8 +313,6 @@ export class WhatsAppMessageRouterService {
       ]);
 
       if (timedResponse.type === 'timeout') {
-        sentProcessingMessage = true;
-        await runtime.sendText(WHATSAPP_BOT_DEFAULTS.processingMessage, 'Bot');
         aiResult = await responsePromise;
       } else {
         aiResult = timedResponse.result;
@@ -338,12 +335,7 @@ export class WhatsAppMessageRouterService {
         return;
       }
 
-      if (
-        !sentProcessingMessage ||
-        reply !== WHATSAPP_BOT_DEFAULTS.processingMessage
-      ) {
-        await runtime.sendText(reply, 'IA');
-      }
+      await runtime.sendText(reply, 'IA');
 
       this.setCachedReply(cacheKey, reply);
       this.markCooldown(userKey);

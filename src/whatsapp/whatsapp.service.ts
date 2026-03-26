@@ -759,7 +759,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       instance.status = WhatsAppStatus.CONNECTING;
       const authRecord = await this.getAuthRecord(sessionId);
       const { state, saveCreds } = await this.useMongoAuthState(sessionId);
-      const hasPersistedCreds = Boolean(authRecord?.creds);
       const latestVersion = await this.getBaileysSocketVersion();
 
       const socket = makeWASocket({
@@ -769,7 +768,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         version: latestVersion,
         connectTimeoutMs: 60000,
         markOnlineOnConnect: false,
-        syncFullHistory: hasPersistedCreds,
+        syncFullHistory: true,
         getMessage: async (key: any) => this.getStoredBaileysMessage(key),
         cachedGroupMetadata: async (jid: string) =>
           instance.groupMetadataCache.get(jid) ||
@@ -1371,7 +1370,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getRecentChats(sessionId: string) {
-    const instance = this.getInstance(sessionId);
+    const instance = await this.ensureSocketReady(sessionId).catch(() =>
+      this.getInstance(sessionId),
+    );
     const routes = await this.agentsService.listConversationRoutes(
       '',
       'SUPER_ADMIN',
@@ -1466,6 +1467,61 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    for (const [groupId, cachedGroup] of Array.from(
+      instance.groupMetadataCache.entries(),
+    )) {
+      if (!groupId || chatMap.has(groupId)) continue;
+
+      chatMap.set(groupId, {
+        id: groupId,
+        jid: groupId,
+        name:
+          cachedGroup?.subject ||
+          cachedGroup?.name ||
+          cachedGroup?.notify ||
+          groupId,
+        lastMessage: 'Grupo do WhatsApp',
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+          cachedGroup?.subject || cachedGroup?.name || groupId,
+        )}&background=random`,
+        profile_pic_url: undefined,
+        type: 'group',
+        unreadCount: 0,
+        contactNumber: this.normalizeContactNumber(groupId),
+        status: 'OPEN',
+        lastMessageAt: null,
+        attendanceMode: 'HUMAN',
+        assignedAgentId: null,
+        assignedAgentName: null,
+      });
+    }
+
+    try {
+      const groups = await this.getGroups(sessionId);
+      for (const group of groups || []) {
+        if (!group?.jid || chatMap.has(group.jid)) continue;
+
+        chatMap.set(group.jid, {
+          id: group.jid,
+          jid: group.jid,
+          name: group.name || group.jid,
+          lastMessage: group.lastMessage || 'Grupo do WhatsApp',
+          avatar: group.profile_pic_url || group.avatar,
+          profile_pic_url: group.profile_pic_url,
+          type: 'group',
+          unreadCount: 0,
+          contactNumber: this.normalizeContactNumber(group.jid),
+          status: 'OPEN',
+          lastMessageAt: null,
+          attendanceMode: 'HUMAN',
+          assignedAgentId: null,
+          assignedAgentName: null,
+        });
+      }
+    } catch (error) {
+      console.error('[WhatsApp] Falha ao buscar grupos para a inbox:', error);
+    }
+
     return Array.from(chatMap.values()).sort((a, b) => {
       const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
       const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
@@ -1537,10 +1593,20 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getGroups(sessionId: string) {
-    const instance = await this.ensureSocketReady(sessionId);
-    const groups =
-      (await (instance.socket as any).groupFetchAllParticipating().catch(() => null)) ||
-      Object.fromEntries(instance.groupMetadataCache.entries());
+    const instance = this.getInstance(sessionId);
+    let groups =
+      Object.fromEntries(instance.groupMetadataCache.entries()) || {};
+
+    if (instance.socket && instance.status === WhatsAppStatus.READY) {
+      const liveGroups = await (instance.socket as any)
+        .groupFetchAllParticipating()
+        .catch(() => null);
+
+      if (liveGroups && Object.keys(liveGroups).length > 0) {
+        groups = liveGroups;
+      }
+    }
+
     const normalizedGroups = await Promise.all(
       Object.values(groups).map(async (g: any) => {
         let profilePicUrl: string | undefined;

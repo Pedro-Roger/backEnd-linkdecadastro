@@ -13,12 +13,10 @@ export const WHATSAPP_BOT_DEFAULTS = {
   minMessageLength: Number(process.env.WHATSAPP_MIN_MESSAGE_LENGTH || 2),
   perUserCooldownMs: Number(process.env.WHATSAPP_USER_COOLDOWN_MS || 3000),
   cacheTtlMs: Number(process.env.WHATSAPP_RESPONSE_CACHE_TTL_MS || 5 * 60 * 1000),
-  processingMessage:
-    process.env.WHATSAPP_PROCESSING_MESSAGE ||
-    'Estou processando sua pergunta e ja vou te responder.',
+  processingMessage: process.env.WHATSAPP_PROCESSING_MESSAGE || '',
   fallbackMessage:
     process.env.WHATSAPP_FALLBACK_MESSAGE ||
-    'Desculpe, tive um problema para responder agora. Pode tentar novamente em instantes?',
+    'Tive uma instabilidade aqui e nao quero te responder de qualquer jeito. Me chama de novo daqui a pouco?',
 };
 
 export const WHATSAPP_BOT_MESSAGES = {
