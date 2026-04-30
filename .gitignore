@@ -13,3 +13,4 @@ dist/
 .baileys_auth/
 .vercel
 .env*.local
+.env
