@@ -28,6 +28,22 @@ export class EventCityService {
     return ec.closedMessage ?? 'As inscrições para esta cidade estão encerradas.';
   }
 
+  async listFull(eventId: string) {
+    const limits = await this.prisma.municipalityLimit.findMany({
+      where: { eventId },
+    });
+    return limits.map((ec) => ({
+      id: ec.id,
+      municipality: ec.municipality,
+      state: ec.state,
+      defaultLimit: ec.defaultLimit,
+      registrationCount: (ec as any).registrationCount ?? 0,
+      isClosed: (ec as any).isClosed ?? false,
+      closedMessage: (ec as any).closedMessage ?? null,
+      status: this.getStatus(ec as any),
+    }));
+  }
+
   async listAvailable(eventId: string) {
     const limits = await this.prisma.municipalityLimit.findMany({
       where: { eventId },
