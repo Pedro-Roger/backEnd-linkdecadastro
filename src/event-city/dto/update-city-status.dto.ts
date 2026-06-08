@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class UpdateCityStatusDto {
   @IsOptional()
@@ -9,4 +9,9 @@ export class UpdateCityStatusDto {
   @IsString()
   @MaxLength(255)
   closedMessage?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  defaultLimit?: number;
 }

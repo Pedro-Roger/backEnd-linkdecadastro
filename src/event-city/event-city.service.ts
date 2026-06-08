@@ -15,10 +15,16 @@ interface MunicipalityLimitLike {
 export class EventCityService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private readonly UNLIMITED = 999999;
+
+  private isUnlimited(limit: number): boolean {
+    return limit === 0 || limit >= this.UNLIMITED;
+  }
+
   private getStatus(ec: MunicipalityLimitLike): CityStatus {
     if (ec.isClosed) return 'CLOSED';
     const count = ec.registrationCount ?? 0;
-    if (ec.defaultLimit > 0 && count >= ec.defaultLimit) return 'FULL';
+    if (!this.isUnlimited(ec.defaultLimit) && count >= ec.defaultLimit) return 'FULL';
     return 'OPEN';
   }
 
@@ -31,17 +37,29 @@ export class EventCityService {
   async listFull(eventId: string) {
     const limits = await this.prisma.municipalityLimit.findMany({
       where: { eventId },
+      include: { classes: { select: { currentCount: true } } },
     });
-    return limits.map((ec) => ({
-      id: ec.id,
-      municipality: ec.municipality,
-      state: ec.state,
-      defaultLimit: ec.defaultLimit,
-      registrationCount: (ec as any).registrationCount ?? 0,
-      isClosed: (ec as any).isClosed ?? false,
-      closedMessage: (ec as any).closedMessage ?? null,
-      status: this.getStatus(ec as any),
-    }));
+    return limits.map((ec: any) => {
+      const realCount = ec.classes.reduce((sum: number, c: any) => sum + (c.currentCount ?? 0), 0);
+      const effectiveLimit = this.isUnlimited(ec.defaultLimit) ? 0 : ec.defaultLimit;
+      const ecForStatus: MunicipalityLimitLike = {
+        id: ec.id,
+        isClosed: ec.isClosed ?? false,
+        defaultLimit: effectiveLimit,
+        registrationCount: realCount,
+        closedMessage: ec.closedMessage ?? null,
+      };
+      return {
+        id: ec.id,
+        municipality: ec.municipality,
+        state: ec.state,
+        defaultLimit: effectiveLimit,
+        registrationCount: realCount,
+        isClosed: ec.isClosed ?? false,
+        closedMessage: ec.closedMessage ?? null,
+        status: this.getStatus(ecForStatus),
+      };
+    });
   }
 
   async listAvailable(eventId: string) {
@@ -98,7 +116,7 @@ export class EventCityService {
 
   async updateStatus(
     limitId: string,
-    data: { isClosed?: boolean; closedMessage?: string | null },
+    data: { isClosed?: boolean; closedMessage?: string | null; defaultLimit?: number },
   ) {
     return this.prisma.municipalityLimit.update({
       where: { id: limitId },
