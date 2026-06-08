@@ -17,7 +17,8 @@ export class EventCityService {
 
   private getStatus(ec: MunicipalityLimitLike): CityStatus {
     if (ec.isClosed) return 'CLOSED';
-    if (ec.defaultLimit > 0 && ec.registrationCount >= ec.defaultLimit) return 'FULL';
+    const count = ec.registrationCount ?? 0;
+    if (ec.defaultLimit > 0 && count >= ec.defaultLimit) return 'FULL';
     return 'OPEN';
   }
 
@@ -63,7 +64,10 @@ export class EventCityService {
     const result = await this.prisma.municipalityLimit.updateMany({
       where: {
         id: ec.id,
-        registrationCount: { lt: (ec as any).defaultLimit },
+        OR: [
+          { registrationCount: { lt: (ec as any).defaultLimit } },
+          { registrationCount: null },
+        ],
         isClosed: false,
       } as any,
       data: { registrationCount: { increment: 1 } } as any,

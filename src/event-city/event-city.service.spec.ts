@@ -82,6 +82,33 @@ describe('EventCityService', () => {
       await expect(svc.reserveSlot('event-1', 'Fortaleza', 'CE')).rejects.toThrow(ConflictException);
     });
 
+    it('treats null registrationCount as 0 — legacy records without the field still get OPEN status', async () => {
+      const svc = new EventCityService(makePrisma() as any);
+      const ec = { isClosed: false, defaultLimit: 10, registrationCount: null };
+      expect((svc as any).getStatus(ec)).toBe('OPEN');
+    });
+
+    it('reserves slot for legacy record without registrationCount using OR condition', async () => {
+      const prisma = makePrisma();
+      prisma.municipalityLimit.findFirst.mockResolvedValue({
+        id: 'legacy-1', isClosed: false, isClosed: false, defaultLimit: 10, registrationCount: null, closedMessage: null,
+      });
+      prisma.municipalityLimit.updateMany.mockResolvedValue({ count: 1 });
+      const svc = new EventCityService(prisma as any);
+      await svc.reserveSlot('event-1', 'Fortaleza', 'CE');
+      expect(prisma.municipalityLimit.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'legacy-1',
+          OR: [
+            { registrationCount: { lt: 10 } },
+            { registrationCount: null },
+          ],
+          isClosed: false,
+        },
+        data: { registrationCount: { increment: 1 } },
+      });
+    });
+
     it('atomically increments registrationCount when slot is available', async () => {
       const prisma = makePrisma();
       prisma.municipalityLimit.findFirst.mockResolvedValue({
@@ -93,7 +120,10 @@ describe('EventCityService', () => {
       expect(prisma.municipalityLimit.updateMany).toHaveBeenCalledWith({
         where: {
           id: 'limit-1',
-          registrationCount: { lt: 10 },
+          OR: [
+            { registrationCount: { lt: 10 } },
+            { registrationCount: null },
+          ],
           isClosed: false,
         },
         data: { registrationCount: { increment: 1 } },
