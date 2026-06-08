@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ParticipantType, MunicipalityClassStatus } from '@prisma/client';
 import { EmailService } from '../email/email.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { EventCityService } from '../event-city/event-city.service';
 
 @Injectable()
 export class RegistrationsService {
@@ -10,6 +11,7 @@ export class RegistrationsService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly whatsappService: WhatsAppService,
+    @Optional() private readonly eventCityService?: EventCityService,
   ) { }
 
   async createRegistration(data: {
@@ -47,6 +49,10 @@ export class RegistrationsService {
           },
         },
       };
+    }
+
+    if (this.eventCityService) {
+      await this.eventCityService.reserveSlot(data.eventId, data.city, data.state);
     }
 
     let municipalityLimit = await this.prisma.municipalityLimit.findFirst({

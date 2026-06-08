@@ -1,4 +1,6 @@
-﻿import { RegistrationsService } from './registrations.service';
+﻿import { ConflictException } from '@nestjs/common';
+import { RegistrationsService } from './registrations.service';
+import { EventCityService } from '../event-city/event-city.service';
 
 describe('RegistrationsService', () => {
   const createService = () => {
@@ -20,13 +22,18 @@ describe('RegistrationsService', () => {
       sendMessageToPhone: jest.fn(),
     };
 
+    const cityService: any = {
+      reserveSlot: jest.fn().mockResolvedValue(undefined),
+    };
+
     const service = new RegistrationsService(
       prisma,
       emailService,
       whatsappService,
+      cityService,
     );
 
-    return { service, prisma };
+    return { service, prisma, cityService };
   };
 
   it('returns prefill data and duplicate event details when CPF is already registered in the event', async () => {
@@ -66,6 +73,29 @@ describe('RegistrationsService', () => {
         createdAt,
       },
     });
+  });
+
+  it('throws ConflictException when city registration is closed', async () => {
+    const { service, prisma, cityService } = createService();
+    prisma.registration.findFirst.mockResolvedValue(null);
+    cityService.reserveSlot.mockRejectedValue(
+      new ConflictException('Inscrições encerradas para esta cidade.'),
+    );
+
+    await expect(
+      service.createRegistration({
+        eventId: 'ev-1',
+        name: 'João',
+        cpf: '11122233344',
+        phone: '85999999999',
+        email: 'joao@test.com',
+        cep: '60000000',
+        locality: 'Centro',
+        city: 'Fortaleza',
+        state: 'CE',
+        participantType: 'PRODUTOR' as any,
+      }),
+    ).rejects.toThrow(ConflictException);
   });
 
   it('returns duplicate registration metadata instead of throwing a generic error', async () => {

@@ -122,13 +122,16 @@ model Event {
 }
 
 model MunicipalityLimit {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  eventId      String   @db.ObjectId
-  municipality String
-  state        String
-  defaultLimit Int      @default(20)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  eventId           String   @db.ObjectId
+  municipality      String
+  state             String
+  defaultLimit      Int      @default(20)
+  registrationCount Int      @default(0)
+  isClosed          Boolean  @default(false)
+  closedMessage     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   event         Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
   registrations Registration[]
