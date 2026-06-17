@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -19,7 +20,7 @@ import { AdminCrmModule } from './admin-crm/admin-crm.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 import { AgentsModule } from './agents/agents.module';
 import { LocationsModule } from './locations/locations.module';
-import { EventCityModule } from './event-city/event-city.module';
+import { EventGroupsModule } from './event-groups/event-groups.module';
 
 @Module({
   imports: [
@@ -27,13 +28,13 @@ import { EventCityModule } from './event-city/event-city.module';
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     UserModule,
     CoursesModule,
     LessonsModule,
     EventsModule,
-    EventCityModule,
     RegistrationsModule,
     NotificationsModule,
     AdminCoursesModule,
@@ -45,6 +46,7 @@ import { EventCityModule } from './event-city/event-city.module';
     AiAssistantModule,
     AgentsModule,
     LocationsModule,
+    EventGroupsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

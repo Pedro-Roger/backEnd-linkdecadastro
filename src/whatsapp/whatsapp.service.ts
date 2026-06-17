@@ -1546,19 +1546,16 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       throw new Error('Selecione pelo menos um participante (que não seja você mesmo).');
     }
 
-    // WhatsApp group name limit is usually 25 chars for some older clients, or 100 for newer.
-    // Let's truncate to 25 to be safe or at least log it.
-    const safeName = name.substring(0, 25);
+    const safeName = name.substring(0, 100);
 
     console.log(`[WhatsApp] Criando grupo "${safeName}" com ${uniqueParticipants.length} participantes. Sessão: ${sessionId}`);
     console.log(`[WhatsApp] Participantes:`, uniqueParticipants);
 
     try {
       const group = await instance.socket!.groupCreate(safeName, uniqueParticipants);
-      return { success: true, group };
+      return group.id;
     } catch (error: any) {
       console.error('[WhatsApp] Erro ao criar grupo:', error);
-      // Detailed error if possible
       const errorMessage = error.message || 'Erro desconhecido no Baileys';
       throw new Error(`Erro ao criar grupo: ${errorMessage}`);
     }
@@ -1583,8 +1580,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      await instance.socket!.groupParticipantsUpdate(normalizedGroupId, uniqueParticipants, 'add');
-      return { success: true, added: uniqueParticipants.length, groupId: normalizedGroupId };
+      const result = await instance.socket!.groupParticipantsUpdate(normalizedGroupId, uniqueParticipants, 'add');
+      return result || uniqueParticipants.map(jid => ({ jid, status: '200' }));
     } catch (error: any) {
       console.error(`[WhatsApp] Erro ao adicionar participantes no grupo ${normalizedGroupId}:`, error);
       const errorMessage = error?.message || 'Erro desconhecido';
@@ -1669,6 +1666,20 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     });
 
     return { success: true, messageId: result?.key?.id };
+  }
+
+  async getGroupInviteLink(sessionId: string, groupId: string): Promise<string> {
+    const instance = await this.ensureSocketReady(sessionId);
+    const normalizedGroupId = this.normalizeGroupId(groupId);
+
+    try {
+      const code = await instance.socket!.groupInviteCode(normalizedGroupId);
+      if (!code) throw new Error('Failed to generate invite code');
+      return code;
+    } catch (error: any) {
+      console.error(`[WhatsApp] Erro ao obter link de convite do grupo ${normalizedGroupId}:`, error);
+      throw new Error(`Erro ao gerar convite: ${error.message}`);
+    }
   }
 
   /**

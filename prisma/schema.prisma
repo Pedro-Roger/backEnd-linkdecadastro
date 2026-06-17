@@ -19,6 +19,22 @@ enum EventStatus {
   CLOSED
 }
 
+enum CityGroupStatus {
+  ENABLED
+  PENDING_CREATE
+  ACTIVE
+  FULL
+  FAILED
+}
+
+enum GroupJobStatus {
+  PENDING
+  PROCESSING
+  DONE
+  INVITED
+  FAILED
+}
+
 enum RegistrationStatus {
   PENDING
   CONFIRMED
@@ -111,12 +127,15 @@ model Event {
   slug             String?     @unique // URL personalizada
   status           EventStatus @default(ACTIVE)
   maxRegistrations Int?
+  whatsappGroupsEnabled Boolean @default(false)
+  whatsappSessionId String?    @db.ObjectId
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
   createdBy        String      @db.ObjectId
 
   registrations  Registration[]
   municipalities MunicipalityLimit[]
+  cityGroups     EventCityGroup[]
 
   @@map("events")
 }
@@ -515,4 +534,42 @@ model WhatsappAuthState {
   updated_at DateTime @updatedAt
 
   @@map("whatsapp_auth_states")
+}
+
+model EventCityGroup {
+  id        String          @id @default(auto()) @map("_id") @db.ObjectId
+  eventId   String          @db.ObjectId
+  city      String
+  state     String
+  sessionId String          @db.ObjectId
+  status    CityGroupStatus @default(ENABLED)
+  groupJid  String?
+  inviteCode String?
+  lastError String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, city, state])
+  @@map("event_city_groups")
+}
+
+model WhatsappGroupJob {
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  registrationId String        @db.ObjectId
+  cityGroupId    String        @db.ObjectId
+  phone          String
+  name           String
+  status         GroupJobStatus @default(PENDING)
+  attempts       Int           @default(0)
+  maxAttempts    Int           @default(5)
+  nextRunAt      DateTime      @default(now())
+  lastError      String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([registrationId, cityGroupId])
+  @@index([status, nextRunAt])
+  @@map("whatsapp_group_jobs")
 }

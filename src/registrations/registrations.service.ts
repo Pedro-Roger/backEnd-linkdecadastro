@@ -1,9 +1,9 @@
-import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ParticipantType, MunicipalityClassStatus } from '@prisma/client';
 import { EmailService } from '../email/email.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { EventCityService } from '../event-city/event-city.service';
+import { EventGroupsService } from '../event-groups/event-groups.service';
 
 @Injectable()
 export class RegistrationsService {
@@ -11,7 +11,7 @@ export class RegistrationsService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly whatsappService: WhatsAppService,
-    @Optional() private readonly eventCityService?: EventCityService,
+    private readonly eventGroupsService: EventGroupsService,
   ) { }
 
   async createRegistration(data: {
@@ -29,31 +29,6 @@ export class RegistrationsService {
     pondCount?: number;
     waterArea?: number;
   }) {
-    // Verificar se jÃƒÆ’Ã‚Â¡ existe inscriÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o PARA ESTE EVENTO com este CPF
-    const existingRegistration = await this.prisma.registration.findFirst({
-      where: {
-        cpf: data.cpf,
-        eventId: data.eventId,
-      },
-    });
-
-    if (existingRegistration) {
-      return {
-        error: {
-          message: 'Voce ja esta inscrito neste evento',
-          status: 409,
-          existingRegistration: {
-            id: existingRegistration.id,
-            status: existingRegistration.status,
-            createdAt: existingRegistration.createdAt,
-          },
-        },
-      };
-    }
-
-    if (this.eventCityService) {
-      await this.eventCityService.reserveSlot(data.eventId, data.city, data.state);
-    }
 
     let municipalityLimit = await this.prisma.municipalityLimit.findFirst({
       where: {
@@ -97,29 +72,41 @@ export class RegistrationsService {
       });
     }
 
-    await this.prisma.municipalityClass.update({
-      where: { id: activeClass.id },
-      data: {
-        currentCount: {
-          increment: 1,
-        },
-      },
+    const existingReg = await this.prisma.registration.findFirst({
+      where: { eventId: data.eventId, cpf: data.cpf },
     });
 
-    const registration = await this.prisma.registration.create({
-      data: {
-        ...data,
-        municipalityId: municipalityLimit.id,
-        municipalityClassId: activeClass.id,
-        batchNumber: activeClass.classNumber,
-        status: 'CONFIRMED',
-      },
-    });
+    let registration;
+    if (existingReg) {
+      registration = await this.prisma.registration.update({
+        where: { id: existingReg.id },
+        data: {
+          status: 'CONFIRMED',
+          phone: data.phone,
+          email: data.email,
+          name: data.name,
+        },
+      });
+    } else {
+      await this.prisma.municipalityClass.update({
+        where: { id: activeClass.id },
+        data: { currentCount: { increment: 1 } },
+      });
+
+      registration = await this.prisma.registration.create({
+        data: {
+          ...data,
+          municipalityId: municipalityLimit.id,
+          municipalityClassId: activeClass.id,
+          batchNumber: activeClass.classNumber,
+          status: 'CONFIRMED',
+        },
+      });
+    }
 
     return registration;
   }
 
-  // Novo mÃƒÆ’Ã‚Â©todo para buscar dados de cadastro anterior pelo CPF
   async findByCpf(cpf: string, eventId?: string) {
     const existingRegistration = eventId
       ? await this.prisma.registration.findFirst({
@@ -251,14 +238,23 @@ export class RegistrationsService {
         });
       }
 
-      // Envio de WhatsApp automÃƒÆ’Ã‚Â¡tico
+      const firstName = data.name.split(' ')[0];
       await this.whatsappService.sendMessageToPhone(
         data.phone,
-        `Ola ${data.name.split(' ')[0]}, obrigado por se cadastrar no evento "${event.title}"! Seu cadastro foi confirmado com sucesso.`
+        `Ola ${firstName}, obrigado por se cadastrar no evento "${event.title}"! Seu cadastro foi confirmado com sucesso.`
+      );
+
+      await this.eventGroupsService.enqueueIfEligible(
+        registration.id,
+        data.eventId,
+        data.phone,
+        data.name,
+        data.city,
+        data.state,
       );
 
     } catch (error) {
-      console.error('Erro ao enviar email ou WhatsApp:', error);
+      console.error('Error sending email or WhatsApp:', error);
     }
 
     return registration;
