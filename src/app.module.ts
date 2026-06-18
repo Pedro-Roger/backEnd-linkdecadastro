@@ -20,6 +20,7 @@ import { AdminCrmModule } from './admin-crm/admin-crm.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 import { AgentsModule } from './agents/agents.module';
 import { LocationsModule } from './locations/locations.module';
+import { EventCityModule } from './event-city/event-city.module';
 import { EventGroupsModule } from './event-groups/event-groups.module';
 
 @Module({
@@ -46,6 +47,7 @@ import { EventGroupsModule } from './event-groups/event-groups.module';
     AiAssistantModule,
     AgentsModule,
     LocationsModule,
+    EventCityModule,
     EventGroupsModule,
   ],
   controllers: [AppController],

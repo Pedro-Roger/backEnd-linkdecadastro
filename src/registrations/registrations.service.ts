@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ParticipantType, MunicipalityClassStatus } from '@prisma/client';
 import { EmailService } from '../email/email.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { EventGroupsService } from '../event-groups/event-groups.service';
+import { EventCityService } from '../event-city/event-city.service';
 
 @Injectable()
 export class RegistrationsService {
@@ -12,6 +13,7 @@ export class RegistrationsService {
     private readonly emailService: EmailService,
     private readonly whatsappService: WhatsAppService,
     private readonly eventGroupsService: EventGroupsService,
+    @Optional() private readonly eventCityService?: EventCityService,
   ) { }
 
   async createRegistration(data: {
@@ -88,6 +90,11 @@ export class RegistrationsService {
         },
       });
     } else {
+      // Reserva vaga no controle de cidades (apenas para inscrições novas)
+      if (this.eventCityService) {
+        await this.eventCityService.reserveSlot(data.eventId, data.city, data.state);
+      }
+
       await this.prisma.municipalityClass.update({
         where: { id: activeClass.id },
         data: { currentCount: { increment: 1 } },

@@ -6,9 +6,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { EventGroupsModule } from '../event-groups/event-groups.module';
+import { EventCityModule } from '../event-city/event-city.module';
 
 @Module({
-  imports: [WhatsAppModule, EventGroupsModule],
+  imports: [WhatsAppModule, EventGroupsModule, EventCityModule],
   controllers: [RegistrationsController],
   providers: [RegistrationsService, RegistrationsRepository, PrismaService, EmailService],
   exports: [RegistrationsRepository],
