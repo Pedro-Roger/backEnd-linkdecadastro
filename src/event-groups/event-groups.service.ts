@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CityGroupStatus, GroupJobStatus } from '@prisma/client';
@@ -16,7 +16,10 @@ export class EventGroupsService {
     try {
       const event = await this.prisma.event.findUnique({ where: { id: eventId } });
       // Precisa estar habilitado e ter uma conta WhatsApp escolhida.
-      if (!event?.whatsappGroupsEnabled || !event.whatsappSessionId) return;
+      if (!event?.whatsappGroupsEnabled || !event.whatsappSessionId) {
+        this.logger.log(`[enqueue] skip event=${eventId} enabled=${event?.whatsappGroupsEnabled} session=${event?.whatsappSessionId}`);
+        return;
+      }
 
       // Cria o grupo-da-cidade na hora se ainda não existir (1 grupo por cidade).
       let cityGroup = await this.prisma.eventCityGroup.findUnique({
@@ -33,18 +36,102 @@ export class EventGroupsService {
             status: CityGroupStatus.ENABLED,
           },
         });
+        this.logger.log(`[enqueue] cityGroup criado para ${city}/${state} (event=${eventId})`);
       }
 
-      if (cityGroup.status === CityGroupStatus.FAILED) return;
+      if (cityGroup.status === CityGroupStatus.FAILED) {
+        this.logger.warn(`[enqueue] cityGroup FAILED ${city}/${state}, ignorando`);
+        return;
+      }
 
       await this.prisma.whatsappGroupJob.upsert({
         where: { registrationId_cityGroupId: { registrationId, cityGroupId: cityGroup.id } },
         create: { registrationId, cityGroupId: cityGroup.id, phone, name, status: GroupJobStatus.PENDING },
         update: { status: GroupJobStatus.PENDING, nextRunAt: new Date() },
       });
+      this.logger.log(`[enqueue] job criado reg=${registrationId} cidade=${city}/${state} phone=${phone}`);
     } catch (err) {
       this.logger.warn(`enqueueIfEligible fail: ${err.message}`);
     }
+  }
+
+  /**
+   * Agenda os inscritos JÁ existentes de um evento para entrarem nos grupos das
+   * suas cidades, em lotes de `perDay` por dia (escalonado via nextRunAt), para
+   * não adicionar muita gente de uma vez (risco de bloqueio no WhatsApp).
+   */
+  async backfillExistingRegistrations(eventId: string, perDay = 10) {
+    const limit = Math.max(1, Math.min(perDay || 10, 50));
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event?.whatsappGroupsEnabled || !event.whatsappSessionId) {
+      throw new BadRequestException('Habilite os grupos de WhatsApp e selecione uma conta antes de adicionar os inscritos.');
+    }
+
+    const regs = await this.prisma.registration.findMany({
+      where: { eventId, status: 'CONFIRMED' },
+      select: { id: true, phone: true, name: true, city: true, state: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // Agrupa por cidade/estado
+    const byCity = new Map<string, typeof regs>();
+    for (const r of regs) {
+      const key = `${r.city}__${r.state}`;
+      if (!byCity.has(key)) byCity.set(key, []);
+      byCity.get(key)!.push(r);
+    }
+
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const DAY_MS = 24 * 60 * 60 * 1000;
+
+    let scheduled = 0;
+    let maxDays = 0;
+
+    for (const [key, list] of byCity) {
+      const [city, state] = key.split('__');
+
+      let cg = await this.prisma.eventCityGroup.findUnique({
+        where: { eventId_city_state: { eventId, city, state } },
+      });
+      if (!cg) {
+        cg = await this.prisma.eventCityGroup.create({
+          data: { eventId, city, state, sessionId: event.whatsappSessionId, status: CityGroupStatus.ENABLED },
+        });
+      }
+      if (cg.status === CityGroupStatus.FAILED) continue;
+
+      // Não recria jobs que já existem (inscritos novos já enfileirados)
+      const existingJobs = await this.prisma.whatsappGroupJob.findMany({
+        where: { cityGroupId: cg.id },
+        select: { registrationId: true },
+      });
+      const seen = new Set(existingJobs.map((j) => j.registrationId));
+
+      let idx = 0;
+      for (const r of list) {
+        if (seen.has(r.id)) continue;
+        const dayOffset = Math.floor(idx / limit);
+        const nextRunAt = new Date(dayStart.getTime() + dayOffset * DAY_MS);
+        await this.prisma.whatsappGroupJob.create({
+          data: {
+            registrationId: r.id,
+            cityGroupId: cg.id,
+            phone: r.phone,
+            name: r.name,
+            status: GroupJobStatus.PENDING,
+            nextRunAt,
+          },
+        });
+        idx++;
+        scheduled++;
+        maxDays = Math.max(maxDays, dayOffset + 1);
+      }
+      this.logger.log(`[backfill] cidade ${city}/${state}: ${idx} agendados`);
+    }
+
+    this.logger.log(`[backfill] evento=${eventId} total=${scheduled} dias=${maxDays} perDay=${limit}`);
+    return { scheduled, days: maxDays, perDay: limit, cities: byCity.size };
   }
 
   async processJob(job: any) {

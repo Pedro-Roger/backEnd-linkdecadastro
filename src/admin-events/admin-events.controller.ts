@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
   Query,
   Req,
   Res,
@@ -14,11 +15,26 @@ import { Response } from 'express';
 import { AdminEventsService } from './admin-events.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { UpdateEventDto } from './dto/update-event.dto';
+import { EventGroupsService } from '../event-groups/event-groups.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('admin/events')
 export class AdminEventsController {
-  constructor(private readonly adminEventsService: AdminEventsService) { }
+  constructor(
+    private readonly adminEventsService: AdminEventsService,
+    private readonly eventGroupsService: EventGroupsService,
+  ) { }
+
+  @Post(':eventId/whatsapp-groups/backfill')
+  async backfillGroups(
+    @Param('eventId') eventId: string,
+    @Body() body: { perDay?: number },
+  ) {
+    return this.eventGroupsService.backfillExistingRegistrations(
+      eventId,
+      body?.perDay ?? 10,
+    );
+  }
 
   @Patch(':eventId')
   async updateEvent(
