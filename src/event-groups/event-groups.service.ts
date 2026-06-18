@@ -220,7 +220,41 @@ export class EventGroupsService {
     await this.whatsapp.sendMessageToPhone(job.phone, `Olá ${job.name.split(' ')[0]}! Entre no grupo do evento: ${link}`);
   }
 
+  /**
+   * Detecta erros de CONEXÃO do WhatsApp (queda temporária), que não devem
+   * consumir tentativas — o job espera o WhatsApp voltar.
+   */
+  private isConnectionError(err: string): boolean {
+    const m = (err || '').toLowerCase();
+    return (
+      m.includes('nao conectado') ||
+      m.includes('não conectado') ||
+      m.includes('qr code') ||
+      m.includes('escaneie') ||
+      m.includes('connection') ||
+      m.includes('socket') ||
+      m.includes('timed out') ||
+      m.includes('timeout') ||
+      m.includes('econn')
+    );
+  }
+
   private async handleRetry(job: any, err: string) {
+    // Queda de conexão: NÃO conta como tentativa. Re-agenda fixo (2 min) e
+    // segue tentando indefinidamente até o WhatsApp voltar a ficar READY.
+    if (this.isConnectionError(err)) {
+      await this.prisma.whatsappGroupJob.update({
+        where: { id: job.id },
+        data: {
+          status: GroupJobStatus.PENDING,
+          nextRunAt: new Date(Date.now() + 120 * 1000),
+          lastError: `[aguardando WhatsApp conectar] ${err}`,
+        },
+      });
+      this.logger.warn(`[job ${job.id}] WhatsApp offline — re-agendado em 2min sem consumir tentativa`);
+      return;
+    }
+
     const nextAttempt = job.attempts + 1;
     if (nextAttempt >= job.maxAttempts) {
       await this.markJobFailed(job.id, err);
