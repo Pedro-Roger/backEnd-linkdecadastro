@@ -87,31 +87,22 @@ export class EventCityService {
       throw new ConflictException(this.buildMessage(ec as any));
     }
 
-    if ((ec as any).defaultLimit === 0) {
-      await this.prisma.municipalityLimit.update({
-        where: { id: ec.id },
-        data: { registrationCount: { increment: 1 } } as any,
-      });
-      return;
-    }
+    // Usa set explícito (current + 1) em vez de increment atômico, pois
+    // documentos antigos no MongoDB podem não ter o campo registrationCount,
+    // e o increment do Prisma falha quando o campo está ausente.
+    const current = (ec as any).registrationCount ?? 0;
+    const limit = (ec as any).defaultLimit;
 
-    const result = await this.prisma.municipalityLimit.updateMany({
-      where: {
-        id: ec.id,
-        OR: [
-          { registrationCount: { lt: (ec as any).defaultLimit } },
-          { registrationCount: null },
-        ],
-        isClosed: false,
-      } as any,
-      data: { registrationCount: { increment: 1 } } as any,
-    });
-
-    if (result.count === 0) {
+    if (!this.isUnlimited(limit) && current >= limit) {
       throw new ConflictException(
         this.buildMessage(ec as any) ?? 'Vagas esgotadas.',
       );
     }
+
+    await this.prisma.municipalityLimit.update({
+      where: { id: ec.id },
+      data: { registrationCount: current + 1 } as any,
+    });
   }
 
   async updateStatus(
