@@ -46,7 +46,7 @@ export class AdminEventsService {
   ) {
     this.assertAdmin(userRole);
 
-    const { title, description, bannerUrl, maxRegistrations, status, slug } = body;
+    const { title, description, bannerUrl, maxRegistrations, status, slug, whatsappGroupsEnabled, whatsappSessionId } = body;
 
     const updates: Record<string, any> = {};
     if (title !== undefined) updates.title = title;
@@ -60,6 +60,10 @@ export class AdminEventsService {
     if (slug !== undefined) {
       updates.slug = slug ? slug : null;
     }
+    if (whatsappGroupsEnabled !== undefined)
+      updates.whatsappGroupsEnabled = whatsappGroupsEnabled;
+    if (whatsappSessionId !== undefined)
+      updates.whatsappSessionId = whatsappSessionId ? whatsappSessionId : null;
 
     const event = await this.eventsRepository.findFirst({
       where: this.getOwnedWhereClause(userId || '', userRole, { id: eventId }),

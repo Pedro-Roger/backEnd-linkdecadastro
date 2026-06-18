@@ -15,13 +15,27 @@ export class EventGroupsService {
   async enqueueIfEligible(registrationId: string, eventId: string, phone: string, name: string, city: string, state: string) {
     try {
       const event = await this.prisma.event.findUnique({ where: { id: eventId } });
-      if (!event?.whatsappGroupsEnabled) return;
+      // Precisa estar habilitado e ter uma conta WhatsApp escolhida.
+      if (!event?.whatsappGroupsEnabled || !event.whatsappSessionId) return;
 
-      const cityGroup = await this.prisma.eventCityGroup.findUnique({
+      // Cria o grupo-da-cidade na hora se ainda não existir (1 grupo por cidade).
+      let cityGroup = await this.prisma.eventCityGroup.findUnique({
         where: { eventId_city_state: { eventId, city, state } },
       });
 
-      if (!cityGroup || cityGroup.status === CityGroupStatus.FAILED) return;
+      if (!cityGroup) {
+        cityGroup = await this.prisma.eventCityGroup.create({
+          data: {
+            eventId,
+            city,
+            state,
+            sessionId: event.whatsappSessionId,
+            status: CityGroupStatus.ENABLED,
+          },
+        });
+      }
+
+      if (cityGroup.status === CityGroupStatus.FAILED) return;
 
       await this.prisma.whatsappGroupJob.upsert({
         where: { registrationId_cityGroupId: { registrationId, cityGroupId: cityGroup.id } },

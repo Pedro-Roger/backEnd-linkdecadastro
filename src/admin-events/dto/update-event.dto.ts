@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
 
 const BANNER_VALUE_REGEX =
   /^(https?:\/\/.+|\/.+|data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)$/;
@@ -45,4 +45,18 @@ export class UpdateEventDto {
   @IsOptional()
   @IsIn(['ACTIVE', 'INACTIVE', 'CLOSED'])
   status?: 'ACTIVE' | 'INACTIVE' | 'CLOSED';
+
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }: { value: unknown }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return undefined;
+  })
+  whatsappGroupsEnabled?: boolean;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => (value === '' ? null : value))
+  whatsappSessionId?: string | null;
 }
