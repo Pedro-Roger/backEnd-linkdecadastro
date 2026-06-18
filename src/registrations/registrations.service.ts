@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ParticipantType, MunicipalityClassStatus } from '@prisma/client';
-import { EmailService } from '../email/email.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { EventGroupsService } from '../event-groups/event-groups.service';
 import { EventCityService } from '../event-city/event-city.service';
@@ -10,7 +9,6 @@ import { EventCityService } from '../event-city/event-city.service';
 export class RegistrationsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly emailService: EmailService,
     private readonly whatsappService: WhatsAppService,
     private readonly eventGroupsService: EventGroupsService,
     @Optional() private readonly eventCityService?: EventCityService,
@@ -224,33 +222,9 @@ export class RegistrationsService {
       return registration;
     }
 
+    // Enfileira para o grupo de WhatsApp de forma independente — não pode ser
+    // bloqueado por falha de e-mail/DM (que vêm depois).
     try {
-      await this.emailService.sendRegistrationEmail(
-        data.email,
-        data.name,
-        event.title,
-      );
-
-      const admin = await this.prisma.user.findFirst({
-        where: { role: 'ADMIN' },
-      });
-
-      if (admin) {
-        await this.emailService.sendAdminNotificationEmail(admin.email, {
-          name: data.name,
-          email: data.email,
-          cpf: data.cpf,
-          city: data.city,
-          eventTitle: event.title,
-        });
-      }
-
-      const firstName = data.name.split(' ')[0];
-      await this.whatsappService.sendMessageToPhone(
-        data.phone,
-        `Ola ${firstName}, obrigado por se cadastrar no evento "${event.title}"! Seu cadastro foi confirmado com sucesso.`
-      );
-
       await this.eventGroupsService.enqueueIfEligible(
         registration.id,
         data.eventId,
@@ -259,9 +233,19 @@ export class RegistrationsService {
         data.city,
         data.state,
       );
-
     } catch (error) {
-      console.error('Error sending email or WhatsApp:', error);
+      console.error('Error enqueuing WhatsApp group job:', error);
+    }
+
+    // DM de confirmação no WhatsApp (sem e-mail — não há SMTP configurado).
+    try {
+      const firstName = data.name.split(' ')[0];
+      await this.whatsappService.sendMessageToPhone(
+        data.phone,
+        `Ola ${firstName}, obrigado por se cadastrar no evento "${event.title}"! Seu cadastro foi confirmado com sucesso.`
+      );
+    } catch (error) {
+      console.error('Error sending WhatsApp confirmation:', error);
     }
 
     return registration;
