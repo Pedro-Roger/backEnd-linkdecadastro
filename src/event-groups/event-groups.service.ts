@@ -101,33 +101,58 @@ export class EventGroupsService {
       }
       if (cg.status === CityGroupStatus.FAILED) continue;
 
-      // Não recria jobs que já existem (inscritos novos já enfileirados)
+      // Jobs já existentes: quem está DONE/INVITED já está no grupo (pula);
+      // o resto (PENDING/PROCESSING/FAILED) é re-agendado para reprocessar.
       const existingJobs = await this.prisma.whatsappGroupJob.findMany({
         where: { cityGroupId: cg.id },
-        select: { registrationId: true },
+        select: { id: true, registrationId: true, status: true },
       });
-      const seen = new Set(existingJobs.map((j) => j.registrationId));
+      const jobByReg = new Map(existingJobs.map((j) => [j.registrationId, j]));
 
       let idx = 0;
       for (const r of list) {
-        if (seen.has(r.id)) continue;
+        const existing = jobByReg.get(r.id);
+        if (
+          existing &&
+          (existing.status === GroupJobStatus.DONE ||
+            existing.status === GroupJobStatus.INVITED)
+        ) {
+          continue; // já entrou no grupo / já convidado
+        }
+
         const dayOffset = Math.floor(idx / limit);
         const nextRunAt = new Date(dayStart.getTime() + dayOffset * DAY_MS);
-        await this.prisma.whatsappGroupJob.create({
-          data: {
-            registrationId: r.id,
-            cityGroupId: cg.id,
-            phone: r.phone,
-            name: r.name,
-            status: GroupJobStatus.PENDING,
-            nextRunAt,
-          },
-        });
+
+        if (existing) {
+          // Re-tenta um job que falhou/estava pendente
+          await this.prisma.whatsappGroupJob.update({
+            where: { id: existing.id },
+            data: {
+              status: GroupJobStatus.PENDING,
+              attempts: 0,
+              nextRunAt,
+              lastError: null,
+              phone: r.phone,
+              name: r.name,
+            },
+          });
+        } else {
+          await this.prisma.whatsappGroupJob.create({
+            data: {
+              registrationId: r.id,
+              cityGroupId: cg.id,
+              phone: r.phone,
+              name: r.name,
+              status: GroupJobStatus.PENDING,
+              nextRunAt,
+            },
+          });
+        }
         idx++;
         scheduled++;
         maxDays = Math.max(maxDays, dayOffset + 1);
       }
-      this.logger.log(`[backfill] cidade ${city}/${state}: ${idx} agendados`);
+      this.logger.log(`[backfill] cidade ${city}/${state}: ${idx} agendados/re-agendados`);
     }
 
     this.logger.log(`[backfill] evento=${eventId} total=${scheduled} dias=${maxDays} perDay=${limit}`);
