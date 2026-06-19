@@ -34,6 +34,7 @@ interface WhatsAppInstance {
   chats: Map<string, any>;
   contacts: Map<string, any>;
   groupMetadataCache: Map<string, any>;
+  reconnectTimer?: ReturnType<typeof setTimeout> | null;
 }
 
 interface StoredMessageInput {
@@ -74,7 +75,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private contactQueues: Map<string, Promise<void>> = new Map();
   private botCooldowns: Map<string, number> = new Map();
   private RETRY_INTERVAL = 5000;
-  private MAX_RETRIES = 5;
+  private MAX_RETRIES = 20;
   private BOT_REPLY_COOLDOWN_MS = 8000;
 
   private baileysModule: any = null;
@@ -263,6 +264,54 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Agenda UMA reconexão por sessão (cancela timer anterior), com backoff
+   * exponencial e teto, evitando a "rajada" de sockets concorrentes que
+   * desestabiliza a conexão. Destrava o status CONNECTING órfão antes de
+   * reconectar (senão o guard do initializeClient bloquearia).
+   */
+  private scheduleReconnect(
+    sessionId: string,
+    instance: WhatsAppInstance,
+    isRestartFlow: boolean,
+  ) {
+    if (instance.reconnectTimer) {
+      clearTimeout(instance.reconnectTimer);
+      instance.reconnectTimer = null;
+    }
+
+    if (instance.retryCount >= this.MAX_RETRIES) {
+      this.log('WARN', 'Reconexao WhatsApp esgotou tentativas; aguardando acao manual.', {
+        sessionId,
+        retryCount: instance.retryCount,
+      });
+      return;
+    }
+
+    instance.retryCount++;
+    const backoff = isRestartFlow
+      ? 2000
+      : Math.min(60000, 3000 * Math.pow(2, instance.retryCount - 1)); // 3s,6s,12s,24s,48s,60s...
+
+    this.log('INFO', 'Reconexao WhatsApp agendada.', {
+      sessionId,
+      emMs: backoff,
+      tentativa: instance.retryCount,
+    });
+
+    instance.reconnectTimer = setTimeout(() => {
+      instance.reconnectTimer = null;
+      // Destrava status CONNECTING órfão (sem socket) para o guard não bloquear
+      if (
+        instance.status === WhatsAppStatus.CONNECTING &&
+        !instance.socket
+      ) {
+        instance.status = WhatsAppStatus.DISCONNECTED;
+      }
+      this.initializeClient(sessionId).catch(() => undefined);
+    }, backoff);
+  }
+
   private getInstance(sessionId: string): WhatsAppInstance {
     if (!this.instances.has(sessionId)) {
         this.instances.set(sessionId, {
@@ -273,6 +322,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           chats: new Map(),
           contacts: new Map(),
           groupMetadataCache: new Map(),
+          reconnectTimer: null,
         });
     }
     return this.instances.get(sessionId)!;
@@ -750,6 +800,12 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // Já vamos conectar agora: cancela qualquer reconexão pendente.
+    if (instance.reconnectTimer) {
+      clearTimeout(instance.reconnectTimer);
+      instance.reconnectTimer = null;
+    }
+
     try {
       const {
         Browsers,
@@ -888,11 +944,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
                   : 'DISCONNECTED',
               ...(wasAuthenticated ? {} : { phone_number: null }),
             });
-            if (instance.retryCount < this.MAX_RETRIES) {
-              instance.retryCount++;
-              const reconnectDelay = isRestartFlow ? 1000 : this.RETRY_INTERVAL;
-              setTimeout(() => this.initializeClient(sessionId), reconnectDelay);
-            }
+            this.scheduleReconnect(sessionId, instance, isRestartFlow);
           } else {
             instance.status = WhatsAppStatus.DISCONNECTED;
             instance.retryCount = 0;
@@ -911,6 +963,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           instance.status = WhatsAppStatus.READY;
           instance.qrCodeData = null;
           instance.retryCount = 0;
+          if (instance.reconnectTimer) {
+            clearTimeout(instance.reconnectTimer);
+            instance.reconnectTimer = null;
+          }
           this.log('SUCCESS', 'Socket WhatsApp conectado com sucesso.', {
             sessionId,
           });
