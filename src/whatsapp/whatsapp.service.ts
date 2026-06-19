@@ -1639,6 +1639,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   async createGroup(sessionId: string, name: string, participants: string[]) {
     const instance = await this.ensureSocketReady(sessionId);
+    if (!instance.socket) throw new Error('WhatsApp nao conectado');
 
     const uniqueParticipants = await this.resolveWhatsAppJids(instance, participants);
 
@@ -1663,6 +1664,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   async addParticipantsToGroup(sessionId: string, groupId: string, participants: string[]) {
     const instance = await this.ensureSocketReady(sessionId);
+    if (!instance.socket) throw new Error('WhatsApp nao conectado');
     const normalizedGroupId = this.normalizeGroupId(groupId);
 
     const uniqueParticipants = await this.resolveWhatsAppJids(instance, participants);
