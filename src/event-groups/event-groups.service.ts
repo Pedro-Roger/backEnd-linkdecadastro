@@ -166,6 +166,20 @@ export class EventGroupsService {
       return;
     }
 
+    // WhatsApp offline: re-agenda em silêncio, SEM cutucar o socket (evita
+    // interferir na reconexão) e SEM consumir tentativa.
+    if (!this.whatsapp.isSessionReady(cityGroup.sessionId)) {
+      await this.prisma.whatsappGroupJob.update({
+        where: { id: job.id },
+        data: {
+          status: GroupJobStatus.PENDING,
+          nextRunAt: new Date(Date.now() + 120 * 1000),
+          lastError: '[aguardando WhatsApp conectar]',
+        },
+      });
+      return;
+    }
+
     try {
       if (!cityGroup.groupJid) {
         await this.lazyCreateGroup(cityGroup, job);

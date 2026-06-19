@@ -312,6 +312,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     }, backoff);
   }
 
+  /** Retorna true apenas se a sessão estiver conectada e pronta (READY). */
+  isSessionReady(sessionId: string): boolean {
+    return this.instances.get(sessionId)?.status === WhatsAppStatus.READY;
+  }
+
   private getInstance(sessionId: string): WhatsAppInstance {
     if (!this.instances.has(sessionId)) {
         this.instances.set(sessionId, {
