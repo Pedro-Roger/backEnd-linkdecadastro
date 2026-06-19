@@ -566,6 +566,7 @@ model WhatsappGroupJob {
   attempts       Int           @default(0)
   maxAttempts    Int           @default(5)
   nextRunAt      DateTime      @default(now())
+  allowCreate    Boolean?      // true = pode criar o grupo (inscrição nova); ausente/false = só adiciona a grupo existente (backfill)
   lastError      String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt

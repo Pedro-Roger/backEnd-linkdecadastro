@@ -46,8 +46,8 @@ export class EventGroupsService {
 
       await this.prisma.whatsappGroupJob.upsert({
         where: { registrationId_cityGroupId: { registrationId, cityGroupId: cityGroup.id } },
-        create: { registrationId, cityGroupId: cityGroup.id, phone, name, status: GroupJobStatus.PENDING },
-        update: { status: GroupJobStatus.PENDING, nextRunAt: new Date() },
+        create: { registrationId, cityGroupId: cityGroup.id, phone, name, status: GroupJobStatus.PENDING, allowCreate: true },
+        update: { status: GroupJobStatus.PENDING, nextRunAt: new Date(), allowCreate: true },
       });
       this.logger.log(`[enqueue] job criado reg=${registrationId} cidade=${city}/${state} phone=${phone}`);
     } catch (err) {
@@ -91,15 +91,12 @@ export class EventGroupsService {
     for (const [key, list] of byCity) {
       const [city, state] = key.split('__');
 
-      let cg = await this.prisma.eventCityGroup.findUnique({
+      const cg = await this.prisma.eventCityGroup.findUnique({
         where: { eventId_city_state: { eventId, city, state } },
       });
-      if (!cg) {
-        cg = await this.prisma.eventCityGroup.create({
-          data: { eventId, city, state, sessionId: event.whatsappSessionId, status: CityGroupStatus.ENABLED },
-        });
-      }
-      if (cg.status === CityGroupStatus.FAILED) continue;
+      // O backfill (10/dia) só atua em cidades que JÁ TÊM grupo criado.
+      // Não cria grupo nem EventCityGroup — isso só acontece em inscrição nova.
+      if (!cg || !cg.groupJid || cg.status === CityGroupStatus.FAILED) continue;
 
       // Jobs já existentes: quem está DONE/INVITED já está no grupo (pula);
       // o resto (PENDING/PROCESSING/FAILED) é re-agendado para reprocessar.
@@ -124,7 +121,7 @@ export class EventGroupsService {
         const nextRunAt = new Date(dayStart.getTime() + dayOffset * DAY_MS);
 
         if (existing) {
-          // Re-tenta um job que falhou/estava pendente
+          // Re-tenta um job que falhou/estava pendente (só adiciona, não cria)
           await this.prisma.whatsappGroupJob.update({
             where: { id: existing.id },
             data: {
@@ -134,6 +131,7 @@ export class EventGroupsService {
               lastError: null,
               phone: r.phone,
               name: r.name,
+              allowCreate: false,
             },
           });
         } else {
@@ -145,6 +143,7 @@ export class EventGroupsService {
               name: r.name,
               status: GroupJobStatus.PENDING,
               nextRunAt,
+              allowCreate: false,
             },
           });
         }
@@ -182,7 +181,13 @@ export class EventGroupsService {
 
     try {
       if (!cityGroup.groupJid) {
-        await this.lazyCreateGroup(cityGroup, job);
+        // Só cria o grupo se o job permite (inscrição nova). Jobs de backfill /
+        // órfãos NÃO criam grupo — são encerrados para não gerar grupos em massa.
+        if (job.allowCreate === true) {
+          await this.lazyCreateGroup(cityGroup, job);
+        } else {
+          await this.markJobFailed(job.id, 'Grupo da cidade ainda não criado (backfill só adiciona a grupos existentes).');
+        }
       } else {
         await this.addToExistingGroup(cityGroup, job);
       }
