@@ -85,18 +85,35 @@ async function bootstrap() {
     'http://localhost:3000',
     'https://linkdecadastro-app.vercel.app',
     'https://www.linkdecadastro-app.vercel.app',
-    process.env.FRONTEND_URL || 'http://localhost:5173',
+    // FRONTEND_URL aceita múltiplas origens separadas por vírgula
+    ...(process.env.FRONTEND_URL || '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
   ].filter(Boolean);
+
+  const isAllowedOrigin = (origin: string): boolean => {
+    if (allowedOrigins.includes(origin)) return true;
+    // Qualquer deploy *.vercel.app (produção + previews)
+    try {
+      const host = new URL(origin).hostname;
+      if (host === 'vercel.app' || host.endsWith('.vercel.app')) return true;
+    } catch {
+      /* origin inválida */
+    }
+    return false;
+  };
 
   app.enableCors({
     origin: (
       origin: string | undefined,
       callback: (error: Error | null, allow?: boolean) => void,
     ) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || isAllowedOrigin(origin)) {
         return callback(null, true);
       }
 
+      console.warn(`[CORS] origin bloqueada: ${origin}`);
       return callback(new Error('Origin nao permitida pelo CORS'));
     },
     credentials: true,
