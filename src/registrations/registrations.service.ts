@@ -78,13 +78,25 @@ export class RegistrationsService {
 
     let registration;
     if (existingReg) {
+      // Re-inscrição: atualiza dados e a CIDADE escolhida (permite trocar de cidade).
       registration = await this.prisma.registration.update({
         where: { id: existingReg.id },
         data: {
           status: 'CONFIRMED',
+          name: data.name,
           phone: data.phone,
           email: data.email,
-          name: data.name,
+          cep: data.cep,
+          locality: data.locality,
+          city: data.city,
+          state: data.state,
+          participantType: data.participantType,
+          otherType: data.otherType,
+          pondCount: data.pondCount,
+          waterArea: data.waterArea,
+          municipalityId: municipalityLimit.id,
+          municipalityClassId: activeClass.id,
+          batchNumber: activeClass.classNumber,
         },
       });
     } else {

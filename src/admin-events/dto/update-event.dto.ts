@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
 
 const BANNER_VALUE_REGEX =
   /^(https?:\/\/.+|\/.+|data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)$/;
@@ -59,4 +59,9 @@ export class UpdateEventDto {
   @IsOptional()
   @Transform(({ value }: { value: unknown }) => (value === '' ? null : value))
   whatsappSessionId?: string | null;
+
+  // Lista de cidades exibidas no dropdown do formulário público: [{ city, state }]
+  @IsOptional()
+  @IsArray()
+  formCities?: { city: string; state: string }[];
 }

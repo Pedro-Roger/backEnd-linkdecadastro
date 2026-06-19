@@ -129,6 +129,7 @@ model Event {
   maxRegistrations Int?
   whatsappGroupsEnabled Boolean @default(false)
   whatsappSessionId String?    @db.ObjectId
+  formCities       Json?       // lista de cidades exibidas no dropdown do formulário: [{ city, state }]
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
   createdBy        String      @db.ObjectId
