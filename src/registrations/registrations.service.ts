@@ -252,10 +252,12 @@ export class RegistrationsService {
     // DM de confirmação no WhatsApp (sem e-mail — não há SMTP configurado).
     try {
       const firstName = data.name.split(' ')[0];
-      await this.whatsappService.sendMessageToPhone(
-        data.phone,
-        `Ola ${firstName}, obrigado por se cadastrar no evento "${event.title}"! Seu cadastro foi confirmado com sucesso.`
-      );
+      const welcomeMessage =
+        `Olá, *${firstName}*! 👋\n\n` +
+        `Sua inscrição no evento *${event.title}* foi confirmada com sucesso! ✅\n\n` +
+        `📍 Cidade: *${data.city} - ${data.state}*\n\n` +
+        `Em breve você receberá mais informações por aqui. Qualquer dúvida, é só responder esta mensagem. 😉`;
+      await this.whatsappService.sendMessageToPhone(data.phone, welcomeMessage);
     } catch (error) {
       console.error('Error sending WhatsApp confirmation:', error);
     }
