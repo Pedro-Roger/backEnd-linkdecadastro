@@ -852,6 +852,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // Marca CONNECTING JÁ (antes de qualquer await) para que chamadas
+    // concorrentes (timer de reconexão + polling) não abram 2 sockets da
+    // mesma sessão — o que causa o conflito 440 (Stream Errored conflict).
+    instance.status = WhatsAppStatus.CONNECTING;
+
     // Já vamos conectar agora: cancela qualquer reconexão pendente.
     if (instance.reconnectTimer) {
       clearTimeout(instance.reconnectTimer);
@@ -864,7 +869,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         default: makeWASocket,
       } = await this.getBaileys();
 
-      instance.status = WhatsAppStatus.CONNECTING;
       const authRecord = await this.getAuthRecord(sessionId);
       const { state, saveCreds } = await this.useMongoAuthState(sessionId);
       const latestVersion = await this.getBaileysSocketVersion();
