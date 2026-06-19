@@ -347,6 +347,53 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     return `${digits}@s.whatsapp.net`;
   }
 
+  /**
+   * Resolve telefones para os JIDs REAIS do WhatsApp (lida com o 9º dígito BR
+   * e código do país). Usa onWhatsApp para obter o JID canônico; se falhar,
+   * cai no número com DDI 55. Remove o dono e duplicados.
+   * Sem essa resolução, números BR sem o "55" geram bad-request no groupCreate.
+   */
+  private async resolveWhatsAppJids(
+    instance: WhatsAppInstance,
+    phones: string[],
+  ): Promise<string[]> {
+    const ownerPhone = instance.phoneNumber;
+    const ownerJid = ownerPhone ? `${ownerPhone}@s.whatsapp.net` : null;
+    const socket = instance.socket as any;
+    const out = new Set<string>();
+
+    for (const raw of phones || []) {
+      if (!raw) continue;
+      if (raw.includes('@')) {
+        out.add(raw);
+        continue;
+      }
+      let digits = raw.replace(/\D/g, '');
+      if (!digits) continue;
+      if (digits.startsWith('0')) digits = digits.substring(1);
+      // Adiciona o código do país BR (55) se for número local (10/11 dígitos)
+      if ((digits.length === 10 || digits.length === 11) && !digits.startsWith('55')) {
+        digits = '55' + digits;
+      }
+      let jid = `${digits}@s.whatsapp.net`;
+      // Resolve o JID canônico (corrige 9º dígito) consultando o WhatsApp
+      try {
+        const results = await socket?.onWhatsApp?.(digits);
+        const found = Array.isArray(results)
+          ? results.find((r: any) => r?.exists && r?.jid)
+          : null;
+        if (found?.jid) jid = found.jid;
+      } catch {
+        /* mantém o jid montado com 55 */
+      }
+      out.add(jid);
+    }
+
+    return Array.from(out).filter(
+      (j) => j !== ownerJid && j !== socket?.user?.id,
+    );
+  }
+
   private unwrapMessageContent(message: any): any {
     let current = message;
 
@@ -1588,15 +1635,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   async createGroup(sessionId: string, name: string, participants: string[]) {
     const instance = await this.ensureSocketReady(sessionId);
 
-    const ownerPhone = instance.phoneNumber;
-    const ownerJid = ownerPhone ? `${ownerPhone}@s.whatsapp.net` : null;
-
-    const normalizedParticipants = participants
-      .map(p => this.normalizeContactJid(p))
-      .filter((jid): jid is string => Boolean(jid));
-
-    const uniqueParticipants = Array.from(new Set(normalizedParticipants))
-      .filter(jid => jid !== ownerJid && jid !== instance.socket?.user?.id);
+    const uniqueParticipants = await this.resolveWhatsAppJids(instance, participants);
 
     if (uniqueParticipants.length === 0) {
       throw new Error('Selecione pelo menos um participante (que não seja você mesmo).');
@@ -1621,15 +1660,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const instance = await this.ensureSocketReady(sessionId);
     const normalizedGroupId = this.normalizeGroupId(groupId);
 
-    const ownerPhone = instance.phoneNumber;
-    const ownerJid = ownerPhone ? `${ownerPhone}@s.whatsapp.net` : null;
-
-    const normalizedParticipants = (participants || [])
-      .map(p => this.normalizeContactJid(p))
-      .filter((jid): jid is string => Boolean(jid));
-
-    const uniqueParticipants = Array.from(new Set(normalizedParticipants))
-      .filter(jid => jid !== ownerJid && jid !== instance.socket?.user?.id);
+    const uniqueParticipants = await this.resolveWhatsAppJids(instance, participants);
 
     if (uniqueParticipants.length === 0) {
       throw new Error('Informe ao menos um participante válido para adicionar.');
