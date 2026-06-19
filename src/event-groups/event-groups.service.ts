@@ -165,6 +165,20 @@ export class EventGroupsService {
       return;
     }
 
+    // Usa SEMPRE a conta de WhatsApp ATUAL do evento (não o snapshot antigo
+    // gravado no cityGroup) — assim, ao trocar a conta conectada, os grupos
+    // existentes continuam sendo operados pela sessão correta.
+    const event = await this.prisma.event.findUnique({
+      where: { id: cityGroup.eventId },
+      select: { whatsappSessionId: true },
+    });
+    if (event?.whatsappSessionId && event.whatsappSessionId !== cityGroup.sessionId) {
+      cityGroup.sessionId = event.whatsappSessionId;
+      await this.prisma.eventCityGroup
+        .update({ where: { id: cityGroup.id }, data: { sessionId: event.whatsappSessionId } })
+        .catch(() => undefined);
+    }
+
     // WhatsApp offline: re-agenda em silêncio, SEM cutucar o socket (evita
     // interferir na reconexão) e SEM consumir tentativa.
     if (!this.whatsapp.isSessionReady(cityGroup.sessionId)) {
