@@ -46,7 +46,7 @@ export class AdminEventsService {
   ) {
     this.assertAdmin(userRole);
 
-    const { title, description, bannerUrl, maxRegistrations, status, slug, whatsappGroupsEnabled, whatsappSessionId, formCities } = body;
+    const { title, description, bannerUrl, maxRegistrations, status, slug, groupInviteLink, whatsappGroupsEnabled, whatsappSessionId, formCities } = body;
 
     const updates: Record<string, any> = {};
     if (title !== undefined) updates.title = title;
@@ -60,6 +60,8 @@ export class AdminEventsService {
     if (slug !== undefined) {
       updates.slug = slug ? slug : null;
     }
+    if (groupInviteLink !== undefined)
+      updates.groupInviteLink = groupInviteLink ? groupInviteLink : null;
     if (whatsappGroupsEnabled !== undefined)
       updates.whatsappGroupsEnabled = whatsappGroupsEnabled;
     if (whatsappSessionId !== undefined)

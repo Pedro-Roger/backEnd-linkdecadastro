@@ -125,6 +125,7 @@ model Event {
   bannerUrl        String?
   linkId           String      @unique
   slug             String?     @unique // URL personalizada
+  groupInviteLink  String?
   status           EventStatus @default(ACTIVE)
   maxRegistrations Int?
   whatsappGroupsEnabled Boolean @default(false)

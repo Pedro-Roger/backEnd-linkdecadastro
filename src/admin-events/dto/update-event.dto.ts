@@ -31,6 +31,14 @@ export class UpdateEventDto {
   @Transform(({ value }: { value: unknown }) => (value === '' ? undefined : value))
   slug?: string;
 
+  @IsString()
+  @IsOptional()
+  @Matches(/^https?:\/\/.+/, {
+    message: 'Link do grupo deve ser uma URL válida',
+  })
+  @Transform(({ value }: { value: unknown }) => (value === '' ? null : value))
+  groupInviteLink?: string | null;
+
   @IsOptional()
   @IsInt()
   @Min(0)

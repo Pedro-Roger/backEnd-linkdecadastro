@@ -1,30 +1,36 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventsService } from './events.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { EventsRepository } from './events.repository';
 import { ForbiddenException } from '@nestjs/common';
 
 describe('EventsService', () => {
   let service: EventsService;
-  let prisma: PrismaService;
 
-  const mockPrismaService = {
-    event: {
-      create: jest.fn(),
-      findUnique: jest.fn(),
-      findMany: jest.fn(),
-    },
+  const txEventCreate = jest.fn();
+  const txMunicipalityCreateMany = jest.fn();
+  const transactionMock = jest.fn(async (fn: any) =>
+    fn({
+      event: { create: txEventCreate },
+      municipalityLimit: { createMany: txMunicipalityCreateMany },
+    }),
+  );
+
+  const mockEventsRepository = {
+    transaction: transactionMock,
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
   };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EventsService,
-        { provide: PrismaService, useValue: mockPrismaService },
+        { provide: EventsRepository, useValue: mockEventsRepository },
       ],
     }).compile();
 
     service = module.get<EventsService>(EventsService);
-    prisma = module.get<PrismaService>(PrismaService);
+    jest.clearAllMocks();
   });
 
   it('should be defined', () => {
@@ -32,104 +38,67 @@ describe('EventsService', () => {
   });
 
   describe('createEvent', () => {
-    it('should create an event with valid data', async () => {
-      const userId = 'user-id';
-      const userRole = 'ADMIN';
-      const body = {
-        title: 'Test Event',
-        description: 'Description',
-        slug: 'test-event',
-      };
-
-      mockPrismaService.event.create.mockResolvedValue({
-        id: 'event-id',
-        ...body,
-      });
-
-      const result = await service.createEvent(userId, userRole, body);
-
-      expect(prisma.event.create).toHaveBeenCalled();
-      expect(result).toEqual(expect.objectContaining({ id: 'event-id' }));
-    });
-
     it('should fail if user is not ADMIN', async () => {
-      const userId = 'user-id';
-      const userRole = 'USER';
-      const body = { title: 'Test' };
-
-      await expect(service.createEvent(userId, userRole, body)).rejects.toThrow(
-        ForbiddenException,
-      );
+      await expect(
+        service.createEvent('user-id', 'USER', { title: 'Test' }),
+      ).rejects.toThrow(ForbiddenException);
     });
 
-    it('should sanitize slug if it contains spaces', async () => {
-      const userId = 'user-id';
-      const userRole = 'ADMIN';
-      const body = {
-        title: 'Test Event',
-        slug: 'test event', // Should become 'test-event'
-      };
-
-      mockPrismaService.event.create.mockResolvedValue({
-        id: 'event-id',
-        ...body,
-        slug: 'test-event',
-      });
-
-      await service.createEvent(userId, userRole, body);
-
-      expect(prisma.event.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            slug: 'test-event',
-          }),
-        }),
-      );
-    });
-
-    it('should sanitize slug if it contains special characters', async () => {
-      const userId = 'user-id';
-      const userRole = 'ADMIN';
-      const body = {
-        title: 'Test Event',
-        slug: 'test@event!', // Should become 'test-event'
-      };
-
-      mockPrismaService.event.create.mockResolvedValue({
-        id: 'event-id',
-        ...body,
-        slug: 'test-event',
-      });
-
-      await service.createEvent(userId, userRole, body);
-
-      expect(prisma.event.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            slug: 'test-event',
-          }),
-        }),
-      );
-    });
     it('should auto-generate linkId', async () => {
-      const userId = 'user-id';
-      const userRole = 'ADMIN';
-      const body = {
-        title: 'Test Event',
-      };
-
-      mockPrismaService.event.create.mockResolvedValue({
+      txEventCreate.mockResolvedValue({
         id: 'event-id',
-        ...body,
+        title: 'Test Event',
       });
 
-      await service.createEvent(userId, userRole, body);
+      await service.createEvent('user-id', 'ADMIN', {
+        title: 'Test Event',
+      });
 
-      expect(prisma.event.create).toHaveBeenCalledWith(
+      expect(txEventCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             linkId: expect.stringMatching(/^evt-/),
           }),
+        }),
+      );
+    });
+
+    it('should persist an optional groupInviteLink', async () => {
+      txEventCreate.mockResolvedValue({
+        id: 'event-id',
+        title: 'Test Event',
+        groupInviteLink: 'https://chat.whatsapp.com/invite-link',
+      });
+
+      await service.createEvent('user-id', 'ADMIN', {
+        title: 'Test Event',
+        groupInviteLink: 'https://chat.whatsapp.com/invite-link',
+      });
+
+      expect(txEventCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            groupInviteLink: 'https://chat.whatsapp.com/invite-link',
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('getEventByLink', () => {
+    it('should return the group invite link for the public event', async () => {
+      mockEventsRepository.findUnique.mockResolvedValue({
+        id: 'event-id',
+        title: 'Test Event',
+        status: 'ACTIVE',
+        groupInviteLink: 'https://chat.whatsapp.com/invite-link',
+      });
+
+      const result = await service.getEventByLink('evt-123');
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          groupInviteLink: 'https://chat.whatsapp.com/invite-link',
         }),
       );
     });

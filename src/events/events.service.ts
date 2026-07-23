@@ -41,6 +41,7 @@ export class EventsService {
       bannerUrl,
       maxRegistrations,
       slug,
+      groupInviteLink,
       status,
       municipalities,
     } = body;
@@ -56,6 +57,7 @@ export class EventsService {
           bannerUrl,
           maxRegistrations,
           slug: normalizedSlug || undefined,
+          groupInviteLink: groupInviteLink || undefined,
           linkId,
           createdBy: userId,
           status: status || 'ACTIVE',
