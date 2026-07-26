@@ -68,8 +68,8 @@ export class UpdateEventDto {
   @Transform(({ value }: { value: unknown }) => (value === '' ? null : value))
   whatsappSessionId?: string | null;
 
-  // Lista de cidades exibidas no dropdown do formulário público: [{ city, state }]
+  // Lista de cidades exibidas no dropdown do formulário público: [{ city, state, hidden? }]
   @IsOptional()
   @IsArray()
-  formCities?: { city: string; state: string }[];
+  formCities?: { city: string; state: string; hidden?: boolean }[];
 }
