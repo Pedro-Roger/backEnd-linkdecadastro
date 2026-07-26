@@ -19,7 +19,7 @@ export class EventsService {
       where.status = 'ACTIVE';
     }
 
-    return this.eventsRepository.findMany({
+    const events = await this.eventsRepository.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -28,6 +28,10 @@ export class EventsService {
         },
       },
     });
+
+    return isAnyAdmin
+      ? events
+      : events.map((event: any) => this.withVisibleFormCities(event));
   }
 
   async createEvent(userId: string, userRole: string | undefined, body: any) {

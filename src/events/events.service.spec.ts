@@ -85,6 +85,47 @@ describe('EventsService', () => {
     });
   });
 
+  describe('listEvents', () => {
+    it('should filter out cities marked as hidden from formCities for public (non-admin) callers', async () => {
+      mockEventsRepository.findMany.mockResolvedValue([
+        {
+          id: 'event-id',
+          title: 'Test Event',
+          status: 'ACTIVE',
+          formCities: [
+            { city: 'Fortaleza', state: 'CE' },
+            { city: 'Sobral', state: 'CE', hidden: true },
+          ],
+        },
+      ]);
+
+      const result = await service.listEvents(undefined, undefined);
+
+      expect(result[0].formCities).toEqual([{ city: 'Fortaleza', state: 'CE' }]);
+    });
+
+    it('should NOT filter formCities for ADMIN callers', async () => {
+      mockEventsRepository.findMany.mockResolvedValue([
+        {
+          id: 'event-id',
+          title: 'Test Event',
+          status: 'ACTIVE',
+          formCities: [
+            { city: 'Fortaleza', state: 'CE' },
+            { city: 'Sobral', state: 'CE', hidden: true },
+          ],
+        },
+      ]);
+
+      const result = await service.listEvents('user-id', 'ADMIN');
+
+      expect(result[0].formCities).toEqual([
+        { city: 'Fortaleza', state: 'CE' },
+        { city: 'Sobral', state: 'CE', hidden: true },
+      ]);
+    });
+  });
+
   describe('getEventByLink', () => {
     it('should return the group invite link for the public event', async () => {
       mockEventsRepository.findUnique.mockResolvedValue({
