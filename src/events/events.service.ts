@@ -101,7 +101,7 @@ export class EventsService {
       throw new ForbiddenException('Evento não está ativo');
     }
 
-    return event;
+    return this.withVisibleFormCities(event);
   }
 
   async getEventBySlug(slug: string) {
@@ -134,6 +134,17 @@ export class EventsService {
       throw new ForbiddenException('Evento não está ativo');
     }
 
-    return event;
+    return this.withVisibleFormCities(event);
+  }
+
+  private withVisibleFormCities(event: any) {
+    if (!Array.isArray(event?.formCities)) {
+      return event;
+    }
+
+    return {
+      ...event,
+      formCities: event.formCities.filter((city: any) => !city?.hidden),
+    };
   }
 }

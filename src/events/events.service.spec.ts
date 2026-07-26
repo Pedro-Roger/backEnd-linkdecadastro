@@ -102,5 +102,40 @@ describe('EventsService', () => {
         }),
       );
     });
+
+    it('should filter out cities marked as hidden from formCities', async () => {
+      mockEventsRepository.findUnique.mockResolvedValue({
+        id: 'event-id',
+        title: 'Test Event',
+        status: 'ACTIVE',
+        formCities: [
+          { city: 'Fortaleza', state: 'CE' },
+          { city: 'Sobral', state: 'CE', hidden: true },
+        ],
+      });
+
+      const result = await service.getEventByLink('evt-123');
+
+      expect(result.formCities).toEqual([{ city: 'Fortaleza', state: 'CE' }]);
+    });
+  });
+
+  describe('getEventBySlug', () => {
+    it('should filter out cities marked as hidden from formCities', async () => {
+      mockEventsRepository.findUnique.mockResolvedValue({
+        id: 'event-id',
+        title: 'Test Event',
+        status: 'ACTIVE',
+        slug: 'evento-teste',
+        formCities: [
+          { city: 'Fortaleza', state: 'CE' },
+          { city: 'Sobral', state: 'CE', hidden: true },
+        ],
+      });
+
+      const result = await service.getEventBySlug('evento-teste');
+
+      expect(result.formCities).toEqual([{ city: 'Fortaleza', state: 'CE' }]);
+    });
   });
 });
